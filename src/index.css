@@ -1,0 +1,25 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Open Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-stage: #d9d9d9;
+  --color-panel: rgb(110 110 110 / 0.88);
+  --color-panel-strong: rgb(85 85 85 / 0.9);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-stage);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+input[type='range'] {
+  accent-color: #3aa5f2;
+}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Outer ring -->
+  <circle cx="32" cy="32" r="26" stroke="#1a3a9e" stroke-width="9" />
+  <circle cx="32" cy="32" r="26" stroke="#1f4fd6" stroke-width="7" />
+  <!-- Middle ring -->
+  <circle cx="32" cy="32" r="18" stroke="#3a3a3a" stroke-width="7.5" />
+  <circle cx="32" cy="32" r="18" stroke="#ffffff" stroke-width="5.5" />
+  <!-- Inner ring -->
+  <circle cx="32" cy="32" r="10.5" stroke="#3a3a3a" stroke-width="8" />
+  <circle cx="32" cy="32" r="10.5" stroke="#ff7a3a" stroke-width="6" />
+</svg>
