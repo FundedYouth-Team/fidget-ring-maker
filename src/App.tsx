@@ -2,6 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { ControlPanel } from './components/ControlPanel'
 import { Designer2D } from './components/Designer2D'
 import { ExportCard, type ExportFormat } from './components/ExportCard'
+import { HelpDialog, loadWelcome, saveWelcome, type WelcomeState } from './components/HelpDialog'
 import { LayersCard } from './components/LayersCard'
 import { Toolbar } from './components/Toolbar'
 import { Viewer3D, type ViewName, type ViewRequest } from './components/Viewer3D'
@@ -123,6 +124,15 @@ export default function App() {
     downloadBlob(blob, `${name}${format === 'stl-zip' ? '-stl.zip' : `.${format}`}`)
   }
 
+  // Welcome popup: shown on startup unless turned off; the ? button reopens it.
+  const [welcome, setWelcome] = useState<WelcomeState>(loadWelcome)
+  const [help, setHelp] = useState(() => ({ open: welcome !== 'off', manual: false }))
+  const closeHelp = useCallback(() => {
+    setHelp({ open: false, manual: false })
+    setWelcome((w) => (w === 'new' ? 'seen' : w))
+  }, [])
+  useEffect(() => saveWelcome(welcome), [welcome])
+
   const showView = (view: ViewName) => setViewRequest((r) => ({ view, nonce: r.nonce + 1 }))
 
   return (
@@ -158,6 +168,7 @@ export default function App() {
           onNew={newProject}
           onOpen={() => fileInput.current?.click()}
           onSave={saveProject}
+          onHelp={() => setHelp({ open: true, manual: true })}
         />
         <input
           ref={fileInput}
@@ -206,6 +217,14 @@ export default function App() {
         <p className="pointer-events-none absolute bottom-20 left-1/2 hidden -translate-x-1/2 text-xs whitespace-nowrap text-neutral-500 sm:block">
           Drag the outer ring to rotate · drag an inner ring to spin it any direction
         </p>
+      )}
+      {help.open && (
+        <HelpDialog
+          showOptOut={help.manual || welcome !== 'new'}
+          optedOut={welcome === 'off'}
+          onOptOutChange={(off) => setWelcome(off ? 'off' : 'seen')}
+          onClose={closeHelp}
+        />
       )}
     </div>
   )

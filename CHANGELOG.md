@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Welcome popup** — shown when someone opens the site: a short how-to YouTube video and four quick
+  points (watch the video, save and open designs, export for 3D printing, add outer designs). On
+  later visits it offers "Don't show this on startup", which is remembered. A **?** button to the
+  right of Save opens it again at any time.
 - **App setup** — client-side React, Vite, Tailwind CSS and three.js app, run with `pnpm dev`.
 - **3D viewer** — light-gray stage modeled on the reference viewer, with panels for export and design.
   Drag the outer ring to orbit; the design is saved in the browser between visits.

@@ -39,7 +39,7 @@ pnpm preview   # serve the production build
    so no assembly is needed.
 
 Use **Save** to download the design as a `.fm.json` project file, **Open** to load one back, and
-**New** to start over.
+**New** to start over. The **?** button next to Save reopens the welcome popup with the how-to video.
 
 ## Features
 
@@ -105,7 +105,8 @@ src/
     Designer2D.tsx        to-scale 2D sizing view, Size and Print bed panels
     ControlPanel.tsx      Design panel: colors, texture, 2D/3D switch
     LayersCard.tsx        layer list, add/delete, Standard/Fill toggle
-    ExportCard.tsx        New / Open / Save and STL / 3MF downloads
+    ExportCard.tsx        New / Open / Save / help and STL / 3MF downloads
+    HelpDialog.tsx        welcome popup with the how-to video
     Toolbar.tsx           reset, 2D/3D, preset views, mm/inch
   lib/
     design.ts             Design model, layers, validation, storage, project files

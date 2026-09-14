@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, FileArchive, FilePlus, FolderOpen, Save, X } from 'lucide-react'
+import { CircleHelp, Download, FileArchive, FilePlus, FolderOpen, Save, X } from 'lucide-react'
 import { PROJECT_EXTENSION, type Design } from '../lib/design'
 import { RingIcon } from './RingIcon'
 
@@ -12,6 +12,7 @@ interface ExportCardProps {
   onNew: () => void
   onOpen: () => void
   onSave: () => void
+  onHelp: () => void
 }
 
 const FORMATS: { id: 'stl' | '3mf'; label: string; hint: string }[] = [
@@ -27,7 +28,7 @@ const STL_CHOICES: { id: ExportFormat; label: string; hint: string; Icon: typeof
 const buttonClass =
   'flex items-center gap-1 rounded px-2 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/15 hover:text-white'
 
-export function ExportCard({ design, stlByteSize, onExport, onNew, onOpen, onSave }: ExportCardProps) {
+export function ExportCard({ design, stlByteSize, onExport, onNew, onOpen, onSave, onHelp }: ExportCardProps) {
   const [askingStl, setAskingStl] = useState(false)
 
   return (
@@ -68,6 +69,9 @@ export function ExportCard({ design, stlByteSize, onExport, onNew, onOpen, onSav
               {label}
             </button>
           ))}
+          <button onClick={onHelp} title="Info and help" aria-label="Info and help" className={buttonClass}>
+            <CircleHelp size={14} />
+          </button>
         </span>
       </div>
 
