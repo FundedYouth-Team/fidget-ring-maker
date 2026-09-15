@@ -19,10 +19,35 @@ export const PALETTE = [
   '#FCE4D4', '#CDBB96', '#A96B32', '#7A7A7A', '#B0B0B0', '#1A1A1A',
 ]
 
+export type Gradient = 'linear' | 'radial'
+
+export const GRADIENTS: { id: Gradient; label: string; title: string }[] = [
+  { id: 'linear', label: 'Linear', title: 'Blend the colors along the band, at an angle' },
+  { id: 'radial', label: 'Radial', title: 'Blend the colors from the inside out' },
+]
+
+/** Linear gradient angle on the band, in degrees: 0 runs around the ring, 90 from one flat face to the other. */
+export const MAX_GRADIENT_ANGLE = 90
+
+/** Display-only multi-color look for one part; the part's main colour is still the one exported. */
+export interface ColorFinish {
+  /** 1 = single, 2 = dual, 3 = tri. */
+  count: 1 | 2 | 3
+  /** Second and third colours — kept while fewer are in use so they come back. */
+  extras: [string, string]
+  gradient: Gradient
+  /** Linear gradient angle in degrees (0–90). */
+  angle: number
+}
+
 export interface Design {
   innerDiameter: number
   /** One colour per part, innermost first; the inner fill, when present, is index 0. */
   colors: string[]
+  /** Advanced colour: parts can show dual or tri-colour gradients in the viewer (not exported). */
+  advancedColor: boolean
+  /** One finish per part, matching `colors`. */
+  finishes: ColorFinish[]
   /** A solid core fills the centre instead of leaving a finger hole. */
   filled: boolean
   texture: Texture
@@ -41,9 +66,17 @@ export interface Design {
 export const MIN_RINGS = 2
 export const MAX_RINGS = 5
 
+/** A single-colour finish, with gradient colours ready that differ from `base`. */
+export const defaultFinish = (base: string): ColorFinish => {
+  const [a, b] = ['#FDE74C', '#F52AF0', '#6ADCF2'].filter((c) => c !== base.toUpperCase())
+  return { count: 1, extras: [a, b], gradient: 'linear', angle: 0 }
+}
+
 export const DEFAULT_DESIGN: Design = {
   innerDiameter: 18,
   colors: ['#FF8036', '#2350D9'],
+  advancedColor: false,
+  finishes: [defaultFinish('#FF8036'), defaultFinish('#2350D9')],
   filled: false,
   texture: 'smooth',
   textureDepth: 'medium',
@@ -81,6 +114,28 @@ export const withValidWalls = (design: Design): Design => {
 /** Colour for part `index` (innermost = 0). */
 export const colorOf = (design: Design, index: number) =>
   design.colors[Math.min(index, design.colors.length - 1)]
+
+export const finishOf = (design: Design, index: number): ColorFinish =>
+  design.finishes[index] ?? defaultFinish(colorOf(design, index))
+
+/** Colours part `index` shows in the viewer: just its main colour unless advanced colour is on. */
+export function displayColorsOf(design: Design, index: number): string[] {
+  const base = colorOf(design, index)
+  if (!design.advancedColor) return [base]
+  const finish = finishOf(design, index)
+  return [base, ...finish.extras.slice(0, finish.count - 1)]
+}
+
+/** CSS background previewing part `index`'s displayed colours. */
+export function swatchBackground(design: Design, index: number): string {
+  const colors = displayColorsOf(design, index)
+  if (colors.length === 1) return colors[0]
+  const { gradient, angle } = finishOf(design, index)
+  if (gradient === 'radial') return `radial-gradient(circle, ${colors.join(', ')})`
+  // Mostly around the ring: out to the far side and back; mostly face to face: a straight fade.
+  if (angle < 45) return `conic-gradient(from 270deg, ${[...colors, ...colors.slice(0, -1).reverse()].join(', ')})`
+  return `linear-gradient(90deg, ${colors.join(', ')})`
+}
 
 /** "Inner fill", "Inner ring", or "Outer ring N" — every ring around the inner one, numbered from 1 inside out. */
 export function partName(design: Design, index: number): string {
@@ -123,6 +178,7 @@ export function removeLayer(design: Design, kind: LayerKind): Design {
   return withValidWalls({
     ...design,
     colors: design.colors.filter((_, i) => i !== removed),
+    finishes: design.finishes.filter((_, i) => i !== removed),
     filled: design.filled && kind !== 'fill',
     walls: kind === 'fill' ? design.walls : design.walls.filter((_, i) => i !== ringOfPart(design, removed)),
   })
@@ -131,15 +187,46 @@ export function removeLayer(design: Design, kind: LayerKind): Design {
 // Existing rings keep their thickness as layers come and go; new ones get the default.
 export function addLayer(design: Design, kind: LayerKind): Design {
   if (!canAddLayer(design, kind)) return design
-  const next = { ...design, filled: design.filled || kind === 'fill', colors: [...design.colors], walls: [...design.walls] }
+  const next = {
+    ...design,
+    filled: design.filled || kind === 'fill',
+    colors: [...design.colors],
+    finishes: [...design.finishes],
+    walls: [...design.walls],
+  }
   const at = kind === 'outer' ? design.colors.length : layerIndex(next, kind)
-  next.colors.splice(at, 0, PALETTE.find((c) => !design.colors.includes(c)) ?? PALETTE[0])
+  const color = PALETTE.find((c) => !design.colors.includes(c)) ?? PALETTE[0]
+  next.colors.splice(at, 0, color)
+  next.finishes.splice(at, 0, defaultFinish(color))
   if (kind === 'outer') next.walls.push(RING_WALL)
   if (kind === 'inner') next.walls.unshift(INNER_RING_WALL)
   return withValidWalls(next)
 }
 
 const STORAGE_KEY = 'fidget-ring-maker:design'
+
+const isHex = (c: unknown): c is string => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)
+
+/** Checks a stored finish, falling back to a single-colour one for anything missing or invalid. */
+function parseFinish(stored: unknown, base: string): ColorFinish {
+  const fallback = defaultFinish(base)
+  if (typeof stored !== 'object' || stored === null) return fallback
+  const { count, extras, gradient, angle } = stored as Omit<Partial<ColorFinish>, 'gradient'> & { gradient?: string }
+  // Finishes from before the angle tool had separate "around" (0°) and "across" (90°) gradients.
+  const legacyAngle = gradient === 'across' ? MAX_GRADIENT_ANGLE : 0
+  return {
+    count: count === 2 || count === 3 ? count : 1,
+    extras: [
+      isHex(extras?.[0]) ? extras[0] : fallback.extras[0],
+      isHex(extras?.[1]) ? extras[1] : fallback.extras[1],
+    ],
+    gradient: gradient === 'radial' ? 'radial' : 'linear',
+    angle:
+      typeof angle === 'number' && Number.isFinite(angle)
+        ? Math.min(Math.max(angle, 0), MAX_GRADIENT_ANGLE)
+        : legacyAngle,
+  }
+}
 
 /** Checks a stored design, returning null if it isn't a usable one. */
 function parseDesign(parsed: unknown): Design | null {
@@ -149,6 +236,9 @@ function parseDesign(parsed: unknown): Design | null {
     const design: Design = {
       innerDiameter: stored.innerDiameter ?? DEFAULT_DESIGN.innerDiameter,
       colors: stored.colors ?? DEFAULT_DESIGN.colors,
+      // Designs from before advanced colour were single colour.
+      advancedColor: stored.advancedColor === true,
+      finishes: [],
       filled: stored.filled ?? DEFAULT_DESIGN.filled,
       texture: stored.texture ?? DEFAULT_DESIGN.texture,
       // Designs from before texture depth used the light depth.
@@ -169,6 +259,8 @@ function parseDesign(parsed: unknown): Design | null {
     const rings = ringCountOf(design)
     if (rings < MIN_RINGS || rings > MAX_RINGS) return null
     if (typeof design.innerDiameter !== 'number' || !Number.isFinite(design.innerDiameter)) return null
+    const finishes = Array.isArray(stored.finishes) ? stored.finishes : []
+    design.finishes = design.colors.map((color, i) => parseFinish(finishes[i], color))
     if (!TEXTURES.some((t) => t.id === design.texture)) design.texture = DEFAULT_DESIGN.texture
     design.filled = design.filled === true
     // Designs from before adjustable thickness used the default walls.

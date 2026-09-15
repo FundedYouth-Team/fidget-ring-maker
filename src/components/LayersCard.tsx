@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import { ChevronsDown, ChevronsUp, Layers, Plus, Trash2 } from 'lucide-react'
-import { MAX_RINGS, MIN_RINGS, canAddLayer, layersOf, ringCountOf, type Design, type LayerKind } from '../lib/design'
+import {
+  MAX_RINGS,
+  MIN_RINGS,
+  canAddLayer,
+  layersOf,
+  ringCountOf,
+  swatchBackground,
+  type Design,
+  type LayerKind,
+} from '../lib/design'
 
 interface LayersCardProps {
   design: Design
@@ -53,7 +62,7 @@ export function LayersCard({ design, selected, onSelect, onRemove, onAdd, onSetF
                 selected === layer.index ? 'bg-white/25 ring-1 ring-white/70' : 'bg-black/15 hover:bg-white/10'
               }`}
             >
-              <LayerSwatch fill={layer.kind === 'fill'} color={layer.color} />
+              <LayerSwatch fill={layer.kind === 'fill'} background={swatchBackground(design, layer.index)} />
               <span className="min-w-0 flex-1">
                 <span className="block">{layer.name}</span>
                 {layer.kind === 'inner' && (
@@ -104,12 +113,14 @@ export function LayersCard({ design, selected, onSelect, onRemove, onAdd, onSetF
   )
 }
 
-/** Hollow circle for a ring, solid disc for the fill. */
-function LayerSwatch({ fill, color }: { fill: boolean; color: string }) {
+/** Hollow circle for a ring, solid disc for the fill; `background` may be a gradient. */
+function LayerSwatch({ fill, background }: { fill: boolean; background: string }) {
+  if (fill) return <span className="size-4 shrink-0 rounded-full border-2 border-white/90" style={{ background }} />
+  const hole = 'radial-gradient(circle, transparent 3.5px, #000 4px)'
   return (
     <span
-      className="size-4 shrink-0 rounded-full border-white/90"
-      style={fill ? { background: color, borderWidth: 2 } : { border: `4px solid ${color}`, boxShadow: '0 0 0 1px rgb(255 255 255 / 0.9)' }}
+      className="size-4 shrink-0 rounded-full"
+      style={{ background, mask: hole, WebkitMask: hole, boxShadow: '0 0 0 1px rgb(255 255 255 / 0.9)' }}
     />
   )
 }

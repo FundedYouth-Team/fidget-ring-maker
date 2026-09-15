@@ -570,7 +570,7 @@ function SectionTitle({ children, className = 'mb-2' }: { children: React.ReactN
   return <h3 className={`${className} text-[11px] font-semibold tracking-wider text-white/60 uppercase`}>{children}</h3>
 }
 
-function Switch({
+export function Switch({
   label,
   checked,
   onChange,

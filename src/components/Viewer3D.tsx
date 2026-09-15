@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import type { OrbitControls as OrbitControlsImpl } from 'three/examples/jsm/controls/OrbitControls.js'
-import { colorOf, type Design } from '../lib/design'
+import { displayColorsOf, finishOf, GRADIENTS, type Design } from '../lib/design'
+import { RING_WIDTH } from '../lib/ring'
 
 export type ViewName = 'home' | 'front' | 'back' | 'top' | 'bottom' | 'left' | 'right'
 
@@ -244,22 +245,161 @@ function RingAssembly({ design, geometries, resetNonce, seeThrough }: RingAssemb
           }
           onPointerOut={draggable ? () => void (!drag.current && (document.body.style.cursor = '')) : undefined}
         >
-          {/* Keyed so the material rebuilds its shader when transparency switches. */}
-          <meshStandardMaterial
-            key={seeThrough ? 'see-through' : 'solid'}
-            color={colorOf(design, index)}
-            roughness={0.5}
-            metalness={0}
-            transparent={seeThrough}
-            opacity={seeThrough ? 0.4 : 1}
-            depthWrite={!seeThrough}
-            side={seeThrough ? THREE.DoubleSide : THREE.FrontSide}
-          />
+          <RingMaterial design={design} index={index} geometry={geometries[index]} seeThrough={seeThrough} />
         </mesh>
+        {seeThrough && <RingEdges geometry={geometries[index]} color={displayColorsOf(design, index)[0]} />}
         {index > 0 && renderRing(index - 1)}
       </group>
     )
   }
 
   return <>{count > 0 && renderRing(count - 1)}</>
+}
+
+/**
+ * Line segments around a part's rims — where its flat faces meet the inner and outer surfaces.
+ * Every vertex on a face plane (z = ±half width) lies on one of those circles, so they're grouped by
+ * face and radius and joined in angle order. Texture never reaches the faces, so the rims stay clean
+ * (crease detection would outline every texture facet instead).
+ */
+function rimLines(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const half = RING_WIDTH / 2
+  const pos = geometry.attributes.position
+  const loops = new Map<string, { angle: number; x: number; y: number; z: number }[]>()
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i)
+    if (Math.abs(Math.abs(z) - half) > 1e-4) continue
+    const x = pos.getX(i)
+    const y = pos.getY(i)
+    const r = Math.hypot(x, y)
+    if (r < 1e-3) continue // cap centre
+    const key = `${Math.sign(z)}:${r.toFixed(3)}`
+    let loop = loops.get(key)
+    if (!loop) loops.set(key, (loop = []))
+    loop.push({ angle: Math.atan2(y, x), x, y, z })
+  }
+  const out: number[] = []
+  for (const loop of loops.values()) {
+    loop.sort((a, b) => a.angle - b.angle)
+    const points = loop.filter((p, i) => i === 0 || p.angle - loop[i - 1].angle > 1e-6) // strips share rim rows
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i]
+      const b = points[(i + 1) % points.length]
+      out.push(a.x, a.y, a.z, b.x, b.y, b.z)
+    }
+  }
+  const lines = new THREE.BufferGeometry()
+  lines.setAttribute('position', new THREE.Float32BufferAttribute(out, 3))
+  return lines
+}
+
+/**
+ * CAD-style outline for the see-through view. Drawn opaque, so the translucent rings blend over the
+ * lines behind them and those read fainter.
+ */
+function RingEdges({ geometry, color }: { geometry: THREE.BufferGeometry; color: string }) {
+  const edges = useMemo(() => rimLines(geometry), [geometry])
+  useEffect(() => () => edges.dispose(), [edges])
+  const lineColor = useMemo(() => new THREE.Color(color).lerp(new THREE.Color('#000000'), 0.65), [color])
+  return (
+    <lineSegments geometry={edges} raycast={() => null}>
+      <lineBasicMaterial color={lineColor} />
+    </lineSegments>
+  )
+}
+
+// Blends up to three colours in object space. Linear runs along the band at an angle: 0° goes around
+// the Z axis out to the far side and back (so there's no seam), 90° across z from face to face.
+// Radial runs out from the bore.
+const GRADIENT_FRAGMENT = /* glsl */ `
+vec3 gradientColor = diffuse;
+if ( uCount > 1 ) {
+  float t;
+  if ( uMode == 0 ) {
+    float around = 1.0 - abs( atan( vObjPos.y, vObjPos.x ) / 3.14159265359 );
+    float across = vObjPos.z / ${RING_WIDTH.toFixed(1)} + 0.5;
+    float c = cos( uAngle );
+    float s = sin( uAngle );
+    t = ( around * c + across * s ) / ( c + s );
+  } else {
+    t = ( length( vObjPos.xy ) - uRadii.x ) / max( uRadii.y - uRadii.x, 1e-3 );
+  }
+  float s = clamp( t, 0.0, 1.0 ) * float( uCount - 1 );
+  int i = min( int( floor( s ) ), uCount - 2 );
+  gradientColor = mix( uColors[ i ], uColors[ i + 1 ], s - float( i ) );
+}
+vec4 diffuseColor = vec4( gradientColor, opacity );
+`
+
+interface RingMaterialProps {
+  design: Design
+  index: number
+  geometry: THREE.BufferGeometry
+  seeThrough: boolean
+}
+
+/** Standard material that shows the part's advanced-colour gradient, if any. Display only. */
+function RingMaterial({ design, index, geometry, seeThrough }: RingMaterialProps) {
+  const colors = displayColorsOf(design, index)
+  const uniforms = useMemo(
+    () => ({
+      uColors: { value: [new THREE.Color(), new THREE.Color(), new THREE.Color()] },
+      uCount: { value: 1 },
+      uMode: { value: 0 },
+      uAngle: { value: 0 },
+      uRadii: { value: new THREE.Vector2(0, 1) },
+    }),
+    [],
+  )
+
+  // Innermost and outermost distance from the axis, for the radial blend.
+  const radii = useMemo(() => {
+    const pos = geometry.attributes.position
+    let min = Infinity
+    let max = 0
+    for (let i = 0; i < pos.count; i++) {
+      const r = Math.hypot(pos.getX(i), pos.getY(i))
+      min = Math.min(min, r)
+      max = Math.max(max, r)
+    }
+    return new THREE.Vector2(min, max)
+  }, [geometry])
+
+  // Uniforms are shared with the compiled shader, so updating them needs no rebuild.
+  uniforms.uColors.value.forEach((c, i) => c.set(colors[Math.min(i, colors.length - 1)]))
+  uniforms.uCount.value = colors.length
+  const finish = finishOf(design, index)
+  uniforms.uMode.value = GRADIENTS.findIndex((g) => g.id === finish.gradient)
+  uniforms.uAngle.value = THREE.MathUtils.degToRad(finish.angle)
+  uniforms.uRadii.value.copy(radii)
+
+  const onBeforeCompile = useCallback(
+    (shader: THREE.WebGLProgramParametersWithUniforms) => {
+      Object.assign(shader.uniforms, uniforms)
+      shader.vertexShader = `varying vec3 vObjPos;\n${shader.vertexShader}`.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvObjPos = position;',
+      )
+      shader.fragmentShader = `uniform vec3 uColors[ 3 ];\nuniform int uCount;\nuniform int uMode;\nuniform float uAngle;\nuniform vec2 uRadii;\nvarying vec3 vObjPos;\n${shader.fragmentShader}`.replace(
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        GRADIENT_FRAGMENT,
+      )
+    },
+    [uniforms],
+  )
+
+  return (
+    // Keyed so the material rebuilds its shader when transparency switches.
+    <meshStandardMaterial
+      key={seeThrough ? 'see-through' : 'solid'}
+      color={colors[0]}
+      roughness={0.5}
+      metalness={0}
+      transparent={seeThrough}
+      opacity={seeThrough ? 0.4 : 1}
+      depthWrite={!seeThrough}
+      side={seeThrough ? THREE.DoubleSide : THREE.FrontSide}
+      onBeforeCompile={onBeforeCompile}
+    />
+  )
 }

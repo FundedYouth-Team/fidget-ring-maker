@@ -1,8 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronsDown, ChevronsUp, Paintbrush, Ruler } from 'lucide-react'
-import { PALETTE, colorOf, partName, specsOf, type Design } from '../lib/design'
+import {
+  GRADIENTS,
+  MAX_GRADIENT_ANGLE,
+  PALETTE,
+  colorOf,
+  finishOf,
+  partName,
+  specsOf,
+  type ColorFinish,
+  type Design,
+} from '../lib/design'
 import { TEXTURE_DEPTHS, TEXTURES, textureDepthMm, type Texture } from '../lib/ring'
 import { formatLength, type Unit } from '../lib/units'
+import { Switch } from './Designer2D'
+
+const COLOR_COUNTS = [
+  { count: 1, label: 'Single' },
+  { count: 2, label: 'Dual' },
+  { count: 3, label: 'Tri' },
+] as const
 
 interface ControlPanelProps {
   design: Design
@@ -16,7 +33,12 @@ interface ControlPanelProps {
 
 export function ControlPanel({ design, onChange, unit, mode, onModeChange, selectedLayer }: ControlPanelProps) {
   const [open, setOpen] = useState(() => window.matchMedia('(min-width: 640px)').matches)
-  const activeColor = colorOf(design, selectedLayer)
+  const finish = finishOf(design, selectedLayer)
+  // Which of the selected part's colours the swatches edit: 0 is its main (exported) colour.
+  const [slot, setSlot] = useState(0)
+  useEffect(() => setSlot(0), [selectedLayer])
+  const activeSlot = design.advancedColor ? Math.min(slot, finish.count - 1) : 0
+  const activeColor = activeSlot === 0 ? colorOf(design, selectedLayer) : finish.extras[activeSlot - 1]
   const outerSpec = specsOf(design).at(-1)!
   const depths = TEXTURE_DEPTHS.map((d) => ({ ...d, actual: textureDepthMm(outerSpec, d.id) }))
   const depthCapped = depths.some((d) => d.actual < d.depth - 1e-6)
@@ -31,7 +53,19 @@ export function ControlPanel({ design, onChange, unit, mode, onModeChange, selec
     setOpen(mode === '3d' && window.matchMedia('(min-width: 640px)').matches)
   }, [mode])
 
+  const setFinish = (patch: Partial<ColorFinish>) => {
+    const finishes = design.colors.map((_, i) => finishOf(design, i))
+    finishes[selectedLayer] = { ...finish, ...patch }
+    onChange({ finishes })
+  }
+
   const setColor = (color: string) => {
+    if (activeSlot > 0) {
+      const extras: ColorFinish['extras'] = [...finish.extras]
+      extras[activeSlot - 1] = color
+      setFinish({ extras })
+      return
+    }
     const colors = [...design.colors]
     colors[selectedLayer] = color
     onChange({ colors })
@@ -50,7 +84,84 @@ export function ControlPanel({ design, onChange, unit, mode, onModeChange, selec
 
       {open && (
         <div className="min-h-0 space-y-5 overflow-y-auto border-t border-white/15 px-4 pt-4 pb-5">
-          <Section title={`Color · ${partName(design, selectedLayer)}`}>
+          <Section
+            title={`Color · ${partName(design, selectedLayer)}`}
+            action={
+              <Switch
+                label="Advanced"
+                checked={design.advancedColor}
+                onChange={(advancedColor) => onChange({ advancedColor })}
+                title={
+                  design.advancedColor
+                    ? 'Turn off to show every part in a single color'
+                    : 'Show dual or tri-color gradients in the viewer'
+                }
+              />
+            }
+          >
+            {design.advancedColor && (
+              <div className="mb-3 space-y-2.5">
+                <Segmented
+                  options={COLOR_COUNTS.map((c) => ({ id: c.count, label: c.label }))}
+                  value={finish.count}
+                  onChange={(count) => setFinish({ count })}
+                />
+                {finish.count > 1 && (
+                  <>
+                    <div className="flex gap-1.5">
+                      {[colorOf(design, selectedLayer), ...finish.extras.slice(0, finish.count - 1)].map((c, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setSlot(i)}
+                          className={`flex flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-[11px] transition ${
+                            activeSlot === i ? 'bg-white/25 ring-1 ring-white/70' : 'bg-black/15 hover:bg-white/10'
+                          }`}
+                        >
+                          <span className="size-3.5 shrink-0 rounded-full border border-white/90" style={{ background: c }} />
+                          Color {i + 1}
+                        </button>
+                      ))}
+                    </div>
+                    <div>
+                      <div className="mb-1.5 text-[11px] text-white/80">Gradient mode</div>
+                      <Segmented
+                        options={GRADIENTS}
+                        value={finish.gradient}
+                        onChange={(gradient) => setFinish({ gradient })}
+                      />
+                    </div>
+                    {finish.gradient === 'linear' && (
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] text-white/80">
+                          Gradient angle
+                          <span className="font-mono text-white/60">{Math.round(finish.angle)}°</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={MAX_GRADIENT_ANGLE}
+                          step={1}
+                          value={finish.angle}
+                          onChange={(e) => setFinish({ angle: parseFloat(e.target.value) })}
+                          className="mt-1.5 w-full"
+                        />
+                        <div className="flex justify-between text-[10px] text-white/60">
+                          <button className="hover:text-white" onClick={() => setFinish({ angle: 0 })}>
+                            Around ring
+                          </button>
+                          <button className="hover:text-white" onClick={() => setFinish({ angle: MAX_GRADIENT_ANGLE })}>
+                            Face to face
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                <p className="text-[11px] text-white/60">
+                  For display only — the 3MF exports each part in its Color 1.
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-6 gap-2.5">
               {PALETTE.map((c) => (
                 <button
@@ -147,12 +258,40 @@ export function ControlPanel({ design, onChange, unit, mode, onModeChange, selec
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 text-[11px] font-semibold tracking-wider text-white/60 uppercase">{title}</h3>
+      <div className="mb-2 flex items-center gap-2">
+        <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold tracking-wider text-white/60 uppercase">{title}</h3>
+        {action}
+      </div>
       {children}
     </section>
+  )
+}
+
+function Segmented<T extends string | number>({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly { id: T; label: string; title?: string }[]
+  value: T
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="grid gap-1 rounded bg-black/20 p-1" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          title={o.title}
+          onClick={() => onChange(o.id)}
+          className={`rounded px-1 py-1 text-xs transition ${value === o.id ? 'bg-white text-neutral-700' : 'hover:bg-white/15'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   )
 }
 

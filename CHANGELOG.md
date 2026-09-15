@@ -76,8 +76,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Saved with the design and in project files; older projects open at Light.
 - **Spinning** — drag an inner ring to spin it in the direction you pull, with momentum.
 - **Toolbar** — reset, 3D/2D switch, and front/back/top/bottom/left/right views.
+- **Advanced color** — an "Advanced" switch next to the Color title in the Design panel, off by
+  default. Turned on, each layer can be Single, Dual or Tri-color; Dual and Tri pick a second and
+  third color and a gradient mode — Linear or Radial (from the inside out) — shown in the 3D view and
+  the Layers box. Linear has a gradient angle slider: 0° blends around the ring to the far side and
+  back, 90° fades from one flat face to the other, and angles between run diagonally across the band;
+  "Around ring" and "Face to face" set either end in one click. Designs saved with the earlier Around
+  or Across modes open at 0° or 90°. It's for display only: the 3MF still exports each
+  part in its first color. Turning it off shows single colors again but keeps the gradients for next
+  time. Saved with the design and in project files; older projects open with it off.
 - **See-through view** — a switch on the toolbar that makes the rings semi-transparent in 3D, keeping
-  their colors, so the texture depth and the rings inside can be seen.
+  their colors, so the texture depth and the rings inside can be seen. Each ring is outlined with
+  dark lines around the rims of its faces, like a CAD program's x-ray view; lines behind a ring show
+  fainter through it.
 - **mm / inch toggle** — at the right end of the toolbar. Switches every measurement shown in the
   Design panel and 2D sizing mode (labels, number boxes, ring size menu) between millimetres and
   inches, and is remembered between visits. Designs, project files and exports stay in millimetres.
