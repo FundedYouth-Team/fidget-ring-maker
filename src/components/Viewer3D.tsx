@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -39,7 +39,53 @@ interface Viewer3DProps {
   seeThrough: boolean
 }
 
-export function Viewer3D({ design, geometries, viewRequest, resetNonce, active, seeThrough }: Viewer3DProps) {
+/** three.js needs WebGL 2; some browsers (e.g. Brave with graphics acceleration off) turn it off entirely. */
+function hasWebGL2(): boolean {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2')
+    gl?.getExtension('WEBGL_lose_context')?.loseContext() // free the probe context
+    return gl !== null
+  } catch {
+    return false
+  }
+}
+
+function WebGLUnavailable() {
+  return (
+    <div className="grid h-full place-items-center p-4">
+      <div className="max-w-sm rounded-md bg-panel p-4 text-sm text-white shadow-lg backdrop-blur-sm">
+        <p className="font-semibold">3D view unavailable</p>
+        <p className="mt-1 text-white/80">
+          This browser has WebGL turned off. Turn on graphics acceleration in the browser settings and relaunch it, or
+          try another browser. The 2D view and downloads still work.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/** Catches the renderer failing to start even though the WebGL 2 check passed. */
+class CanvasErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    return this.state.failed ? <WebGLUnavailable /> : this.props.children
+  }
+}
+
+export function Viewer3D(props: Viewer3DProps) {
+  const [supported] = useState(hasWebGL2)
+  if (!supported) return <WebGLUnavailable />
+  return (
+    <CanvasErrorBoundary>
+      <Scene {...props} />
+    </CanvasErrorBoundary>
+  )
+}
+
+function Scene({ design, geometries, viewRequest, resetNonce, active, seeThrough }: Viewer3DProps) {
   return (
     <Canvas
       camera={{ position: HOME_DIRECTION.clone().multiplyScalar(110).toArray(), fov: 35, near: 1, far: 2000 }}

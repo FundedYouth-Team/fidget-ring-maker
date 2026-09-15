@@ -114,4 +114,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- In browsers with WebGL turned off (such as Brave with graphics acceleration off), the 3D view was
+  blank with no explanation. It now shows a short message saying how to turn it on; the 2D view and
+  downloads still work.
 - 3MF export named the outer ring "Middle ring" in 2-ring mode.
