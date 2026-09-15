@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronsDown, ChevronsUp, Paintbrush, Ruler } from 'lucide-react'
-import { PALETTE, colorOf, partName, type Design } from '../lib/design'
-import { TEXTURES, type Texture } from '../lib/ring'
+import { PALETTE, colorOf, partName, specsOf, type Design } from '../lib/design'
+import { TEXTURE_DEPTHS, TEXTURES, textureDepthMm, type Texture } from '../lib/ring'
 import { formatLength, type Unit } from '../lib/units'
 
 interface ControlPanelProps {
@@ -17,6 +17,9 @@ interface ControlPanelProps {
 export function ControlPanel({ design, onChange, unit, mode, onModeChange, selectedLayer }: ControlPanelProps) {
   const [open, setOpen] = useState(() => window.matchMedia('(min-width: 640px)').matches)
   const activeColor = colorOf(design, selectedLayer)
+  const outerSpec = specsOf(design).at(-1)!
+  const depths = TEXTURE_DEPTHS.map((d) => ({ ...d, actual: textureDepthMm(outerSpec, d.id) }))
+  const depthCapped = depths.some((d) => d.actual < d.depth - 1e-6)
 
   // Collapse in 2D so the sizing panel below has room; reopen on wide screens back in 3D.
   const firstMode = useRef(true)
@@ -110,6 +113,32 @@ export function ControlPanel({ design, onChange, unit, mode, onModeChange, selec
                 </button>
               ))}
             </div>
+            {design.texture !== 'smooth' && (
+              <div className="mt-3">
+                <div className="mb-1.5 text-[11px] text-white/80">Texture depth</div>
+                <div className="grid grid-cols-3 gap-1 rounded bg-black/20 p-1">
+                  {depths.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => onChange({ textureDepth: d.id })}
+                      className={`flex flex-col items-center rounded px-1 py-1.5 text-xs leading-tight transition ${
+                        design.textureDepth === d.id ? 'bg-white text-neutral-700' : 'hover:bg-white/15'
+                      }`}
+                    >
+                      {d.label}
+                      <span className="text-[10px] tabular-nums opacity-70">
+                        {formatLength(d.actual, unit, unit === 'mm' ? 2 : 3)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-white/60">
+                  {depthCapped
+                    ? 'Limited by the outer ring’s thickness — make it thicker in 2D sizing to cut deeper.'
+                    : 'Deeper textures are easier to feel on a print.'}
+                </p>
+              </div>
+            )}
             <p className="mt-2 text-[11px] text-white/60">Inner rings are always smooth so they spin freely.</p>
           </Section>
         </div>

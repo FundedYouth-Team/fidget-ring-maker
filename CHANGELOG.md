@@ -68,8 +68,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Outer textures** — smooth, knurled, knurl inset, ribbed, spiral flutes, grooved, wave, hammered,
   dimples, dragon scale, honeycomb, triangles, squares, rectangles (brick), herringbone and chevron on
   the outer ring's outside, each with its own swatch in the picker. Inner rings are always smooth.
+- **Texture depth** — Light, Medium or Deep, below the texture picker once a texture is chosen,
+  each showing how deep it cuts. Light is the original 0.35 mm; Medium (the default for new designs)
+  cuts 0.7 mm and Deep 1.05 mm, so the pattern is easy to feel on a print. Deeper grooves are also cut
+  wider so a 0.4 mm nozzle can form them. The cut never takes more than 55% of the outer ring's
+  thickness; when that limits a depth, the shown number drops and a note suggests a thicker ring.
+  Saved with the design and in project files; older projects open at Light.
 - **Spinning** — drag an inner ring to spin it in the direction you pull, with momentum.
 - **Toolbar** — reset, 3D/2D switch, and front/back/top/bottom/left/right views.
+- **See-through view** — a switch on the toolbar that makes the rings semi-transparent in 3D, keeping
+  their colors, so the texture depth and the rings inside can be seen.
 - **mm / inch toggle** — at the right end of the toolbar. Switches every measurement shown in the
   Design panel and 2D sizing mode (labels, number boxes, ring size menu) between millimetres and
   inches, and is remembered between visits. Designs, project files and exports stay in millimetres.

@@ -6,8 +6,10 @@ import {
   GAP,
   INNER_RING_WALL,
   RING_WALL,
+  TEXTURE_DEPTHS,
   TEXTURES,
   type Texture,
+  type TextureDepth,
 } from './ring'
 
 export const PALETTE = [
@@ -24,6 +26,8 @@ export interface Design {
   /** A solid core fills the centre instead of leaving a finger hole. */
   filled: boolean
   texture: Texture
+  /** How deep the outer texture cuts in — deeper is easier to feel on a print. */
+  textureDepth: TextureDepth
   /** Wall thickness of each ring at its widest, innermost first (the fill has none). */
   walls: number[]
   /** Keeps the inner diameter and thicknesses within the usual range; off allows any size the geometry supports. */
@@ -42,6 +46,7 @@ export const DEFAULT_DESIGN: Design = {
   colors: ['#FF8036', '#2350D9'],
   filled: false,
   texture: 'smooth',
+  textureDepth: 'medium',
   walls: [INNER_RING_WALL, RING_WALL],
   limited: true,
   fixedGap: true,
@@ -146,6 +151,10 @@ function parseDesign(parsed: unknown): Design | null {
       colors: stored.colors ?? DEFAULT_DESIGN.colors,
       filled: stored.filled ?? DEFAULT_DESIGN.filled,
       texture: stored.texture ?? DEFAULT_DESIGN.texture,
+      // Designs from before texture depth used the light depth.
+      textureDepth: TEXTURE_DEPTHS.some((d) => d.id === stored.textureDepth)
+        ? (stored.textureDepth as TextureDepth)
+        : 'light',
       walls: stored.walls ?? [],
       // Designs from before the size limit toggle were always limited.
       limited: stored.limited !== false,

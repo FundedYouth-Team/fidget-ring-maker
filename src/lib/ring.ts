@@ -200,7 +200,25 @@ export const TEXTURES: { id: Texture; label: string }[] = [
   { id: 'chevron', label: 'Chevron' },
 ]
 
+export type TextureDepth = 'light' | 'medium' | 'deep'
+
+/** How far the outer texture cuts in, in mm. Light is the original depth. */
+export const TEXTURE_DEPTHS: { id: TextureDepth; label: string; depth: number }[] = [
+  { id: 'light', label: 'Light', depth: 0.35 },
+  { id: 'medium', label: 'Medium', depth: 0.7 },
+  { id: 'deep', label: 'Deep', depth: 1.05 },
+]
+
 const DEPTH = 0.35
+/** Deepest cut as a share of the outer ring's wall, so a thin ring keeps enough material. */
+const MAX_DEPTH_SHARE = 0.55
+
+/** Depth (mm) the texture actually cuts into `spec`: the chosen depth, capped by the wall. */
+export const textureDepthMm = (spec: RingSpec, textureDepth: TextureDepth) =>
+  Math.min(
+    TEXTURE_DEPTHS.find((d) => d.id === textureDepth)?.depth ?? DEPTH,
+    (spec.outer.radius - spec.inner.radius) * MAX_DEPTH_SHARE,
+  )
 const TAU = Math.PI * 2
 const frac = (x: number) => x - Math.floor(x)
 const tri = (x: number) => 1 - Math.abs(2 * frac(x) - 1) // 0 at integers, 1 at halves
@@ -235,10 +253,13 @@ function hexNearest(x: number, y: number): [number, number] {
   return [d1, d2]
 }
 
-/** Radial offset (≤ 0, mm) cut into the outer surface. */
-function displacement(texture: Texture, theta: number, z: number, radius: number): number {
+/** Radial offset (≤ 0, mm) cut into the outer surface, at most `depth` deep. */
+function displacement(texture: Texture, theta: number, z: number, radius: number, depth: number): number {
   const circumference = TAU * radius
   const u = theta / TAU // 0..1 around the ring
+  // Deeper grooves also get wider, so they stay wider than a nozzle all the way down.
+  const widen = Math.sqrt(Math.max(1, depth / DEPTH))
+  const cut = (d: number, hw: number) => groove(d, hw * widen)
   switch (texture) {
     case 'smooth':
       return 0
@@ -246,29 +267,29 @@ function displacement(texture: Texture, theta: number, z: number, radius: number
       const n = Math.round(circumference / 1.2)
       const a = u * n + z / (circumference / n)
       const b = u * n - z / (circumference / n)
-      return -DEPTH * (1 - Math.min(tri(a), tri(b)))
+      return -depth * (1 - Math.min(tri(a), tri(b)))
     }
     case 'knurl-inset': {
       // Knurled turned inside out: diamond pockets instead of diamond peaks.
       const n = Math.round(circumference / 1.6)
       const a = u * n + z / (circumference / n)
       const b = u * n - z / (circumference / n)
-      return -DEPTH * Math.min(tri(a), tri(b))
+      return -depth * Math.min(tri(a), tri(b))
     }
     case 'ribbed': {
       const n = Math.round(circumference / 1.5)
-      return -DEPTH * (0.5 + 0.5 * Math.cos(TAU * u * n)) ** 3
+      return -depth * (0.5 + 0.5 * Math.cos(TAU * u * n)) ** 3
     }
     case 'spiral-flutes': {
       const n = Math.round(circumference / 2)
       const a = u * n + (z / (circumference / n)) * 0.6
-      return -DEPTH * (0.5 + 0.5 * Math.cos(TAU * a)) ** 3
+      return -depth * (0.5 + 0.5 * Math.cos(TAU * a)) ** 3
     }
     case 'dimples': {
       const n = Math.round(circumference / 2.2)
       const [d] = hexNearest(u * n, z / (circumference / n))
       const v = 1 - (d / 0.42) ** 2
-      return v > 0 ? -DEPTH * Math.sqrt(v) : 0
+      return v > 0 ? -depth * Math.sqrt(v) : 0
     }
     case 'dragon-scale': {
       // Overlapping scales, each row tucked under the one above it; a scale rises to its rim.
@@ -282,15 +303,15 @@ function displacement(texture: Texture, theta: number, z: number, radius: number
         const c = Math.round(x - offset)
         let d = Infinity
         for (let col = c - 1; col <= c + 1; col++) d = Math.min(d, Math.hypot(x - col - offset, y - row * rowH))
-        if (d < R) return -DEPTH * (1 - d / R)
+        if (d < R) return -depth * (1 - d / R)
       }
-      return -DEPTH
+      return -depth
     }
     case 'honeycomb': {
       const n = Math.round(circumference / 2.6)
       const cell = circumference / n
       const [d1, d2] = hexNearest(u * n, z / cell)
-      return -DEPTH * groove(((d2 * d2 - d1 * d1) / 2) * cell, 0.25)
+      return -depth * cut(((d2 * d2 - d1 * d1) / 2) * cell, 0.25)
     }
     case 'triangles': {
       const n = Math.round(circumference / 3)
@@ -298,12 +319,12 @@ function displacement(texture: Texture, theta: number, z: number, radius: number
       const x = u * n
       const y = z / cell
       const d = Math.min(dint(y / HEX_ROW), dint(x - y / Math.sqrt(3)), dint(x + y / Math.sqrt(3))) * HEX_ROW * cell
-      return -DEPTH * groove(d, 0.25)
+      return -depth * cut(d, 0.25)
     }
     case 'squares': {
       const n = Math.round(circumference / 2.5)
       const cell = circumference / n
-      return -DEPTH * groove(Math.min(dint(u * n), dint(z / cell)) * cell, 0.25)
+      return -depth * cut(Math.min(dint(u * n), dint(z / cell)) * cell, 0.25)
     }
     case 'rectangles': {
       // Bricks: rows half as tall as they are wide, every other row shifted half a brick.
@@ -312,7 +333,7 @@ function displacement(texture: Texture, theta: number, z: number, radius: number
       const h = w / 2
       const y = z / h
       const x = u * n + (Math.floor(y) & 1) * 0.5
-      return -DEPTH * groove(Math.min(dint(x) * w, dint(y) * h), 0.22)
+      return -depth * cut(Math.min(dint(x) * w, dint(y) * h), 0.22)
     }
     case 'herringbone': {
       // Columns of 45° slats, alternating direction; an even column count keeps the seam hidden.
@@ -323,20 +344,20 @@ function displacement(texture: Texture, theta: number, z: number, radius: number
       const sign = col & 1 ? 1 : -1
       const pitch = 1.2
       const slat = dint((z + sign * (x - col) * w) / pitch) * pitch * Math.SQRT1_2
-      return -DEPTH * groove(Math.min(slat, dint(x) * w), 0.2)
+      return -depth * cut(Math.min(slat, dint(x) * w), 0.2)
     }
     case 'chevron': {
       const n = Math.round(circumference / 4)
       const w = circumference / n
       const pitch = 2
       const d = dint((z + tri(u * n) * (w / 2)) / pitch) * pitch * Math.SQRT1_2
-      return -DEPTH * groove(d, 0.4)
+      return -depth * cut(d, 0.4)
     }
     case 'grooved':
-      return -DEPTH * (0.5 + 0.5 * Math.cos((TAU * z) / 2)) ** 6
+      return -depth * (0.5 + 0.5 * Math.cos((TAU * z) / 2)) ** 6
     case 'wave': {
       const n = Math.round(circumference / 3.5)
-      return -DEPTH * (0.5 + 0.5 * Math.sin(TAU * (u * n) + (TAU * z) / 6))
+      return -depth * (0.5 + 0.5 * Math.sin(TAU * (u * n) + (TAU * z) / 6))
     }
     case 'hammered': {
       const n = Math.max(8, Math.round(circumference / 1.8))
@@ -359,7 +380,7 @@ function displacement(texture: Texture, theta: number, z: number, radius: number
           if (v > 0) best = Math.max(best, v * (0.6 + 0.4 * h1))
         }
       }
-      return -DEPTH * best
+      return -depth * best
     }
   }
 }
@@ -374,7 +395,11 @@ type Profile = (t: number) => { r: number; z: number }
  * (top → bottom), bottom face, inner surface (bottom → top), top face — each
  * as its own vertex strip so corners stay crisp while curves shade smoothly.
  */
-export function buildRingGeometry(spec: RingSpec, texture: Texture = 'smooth'): THREE.BufferGeometry {
+export function buildRingGeometry(
+  spec: RingSpec,
+  texture: Texture = 'smooth',
+  textureDepth: TextureDepth = 'light',
+): THREE.BufferGeometry {
   const textured = texture !== 'smooth'
   const segs = textured ? 720 : 192
   const positions: number[] = []
@@ -419,6 +444,8 @@ export function buildRingGeometry(spec: RingSpec, texture: Texture = 'smooth'): 
   const innerEdge = edgeRadius(spec.inner)
   const outerEdge = edgeRadius(spec.outer)
   const midRadius = spec.outer.radius
+  const depth = textureDepthMm(spec, textureDepth)
+  const fade = Math.max(0.6, depth) // taper the cut to nothing at the faces
 
   addStrip(
     textured ? 91 : 41,
@@ -427,7 +454,7 @@ export function buildRingGeometry(spec: RingSpec, texture: Texture = 'smooth'): 
       return { r: surfaceRadius(spec.outer, z), z }
     },
     textured
-      ? (theta, z) => displacement(texture, theta, z, midRadius) * smoothstep(HALF, HALF - 0.6, Math.abs(z))
+      ? (theta, z) => displacement(texture, theta, z, midRadius, depth) * smoothstep(HALF, HALF - fade, Math.abs(z))
       : undefined,
   )
   if (solid) {
@@ -450,8 +477,12 @@ export function buildRingGeometry(spec: RingSpec, texture: Texture = 'smooth'): 
   return geometry
 }
 
-export function buildRingGeometries(specs: RingSpec[], texture: Texture): THREE.BufferGeometry[] {
-  return specs.map((spec, i) => buildRingGeometry(spec, i === specs.length - 1 ? texture : 'smooth'))
+export function buildRingGeometries(
+  specs: RingSpec[],
+  texture: Texture,
+  textureDepth: TextureDepth = 'light',
+): THREE.BufferGeometry[] {
+  return specs.map((spec, i) => buildRingGeometry(spec, i === specs.length - 1 ? texture : 'smooth', textureDepth))
 }
 
 export const triangleCount = (geometries: THREE.BufferGeometry[]) =>

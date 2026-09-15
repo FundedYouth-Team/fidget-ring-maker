@@ -1,4 +1,4 @@
-import { RefreshCw } from 'lucide-react'
+import { Eye, RefreshCw } from 'lucide-react'
 import type { Unit } from '../lib/units'
 import type { ViewName } from './Viewer3D'
 
@@ -9,6 +9,9 @@ interface ToolbarProps {
   onUnitChange: (unit: Unit) => void
   onReset: () => void
   onView: (view: ViewName) => void
+  /** Rings drawn semi-transparent in 3D, so texture depth and inner rings show through. */
+  seeThrough: boolean
+  onSeeThroughChange: (on: boolean) => void
 }
 
 const CUBE_FACES: { view: ViewName; label: string; points: string }[] = [
@@ -20,7 +23,16 @@ const CUBE_FACES: { view: ViewName; label: string; points: string }[] = [
   { view: 'right', label: 'Right', points: '13,7 17,3 17,13 13,17' },
 ]
 
-export function Toolbar({ mode, onModeChange, unit, onUnitChange, onReset, onView }: ToolbarProps) {
+export function Toolbar({
+  mode,
+  onModeChange,
+  unit,
+  onUnitChange,
+  onReset,
+  onView,
+  seeThrough,
+  onSeeThroughChange,
+}: ToolbarProps) {
   const in3d = mode === '3d'
   return (
     <div className="absolute bottom-5 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-full bg-panel px-3 py-1.5 text-white shadow-lg backdrop-blur-sm">
@@ -42,6 +54,27 @@ export function Toolbar({ mode, onModeChange, unit, onUnitChange, onReset, onVie
           </svg>
         </ToolButton>
       ))}
+      <Divider />
+      <button
+        role="switch"
+        aria-checked={seeThrough}
+        title="See-through view: make the rings transparent to see texture depth"
+        onClick={() => onSeeThroughChange(!seeThrough)}
+        disabled={!in3d}
+        className="mx-1 flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold transition hover:bg-white/15 disabled:pointer-events-none disabled:opacity-35"
+      >
+        <Eye size={16} />
+        <span className="whitespace-nowrap">See-through</span>
+        <span
+          className={`relative h-4 w-7 rounded-full transition ${seeThrough ? 'bg-white' : 'bg-black/30'}`}
+        >
+          <span
+            className={`absolute top-0.5 size-3 rounded-full transition-all ${
+              seeThrough ? 'left-3.5 bg-neutral-700' : 'left-0.5 bg-white/80'
+            }`}
+          />
+        </span>
+      </button>
       <Divider />
       <Segmented options={['mm', 'in'] as const} value={unit} onChange={onUnitChange} title="Units" />
     </div>

@@ -34,9 +34,11 @@ interface Viewer3DProps {
   viewRequest: ViewRequest
   resetNonce: number
   active: boolean
+  /** Draw the rings semi-transparent, keeping their colours. */
+  seeThrough: boolean
 }
 
-export function Viewer3D({ design, geometries, viewRequest, resetNonce, active }: Viewer3DProps) {
+export function Viewer3D({ design, geometries, viewRequest, resetNonce, active, seeThrough }: Viewer3DProps) {
   return (
     <Canvas
       camera={{ position: HOME_DIRECTION.clone().multiplyScalar(110).toArray(), fov: 35, near: 1, far: 2000 }}
@@ -53,6 +55,7 @@ export function Viewer3D({ design, geometries, viewRequest, resetNonce, active }
         design={design}
         geometries={geometries}
         resetNonce={resetNonce}
+        seeThrough={seeThrough}
       />
       <OrbitControls makeDefault enablePan={false} enableDamping minDistance={40} maxDistance={300} />
       <CameraRig request={viewRequest} />
@@ -116,6 +119,7 @@ interface RingAssemblyProps {
   design: Design
   geometries: THREE.BufferGeometry[]
   resetNonce: number
+  seeThrough: boolean
 }
 
 /**
@@ -123,7 +127,7 @@ interface RingAssemblyProps {
  * so it rides along with its host while keeping its own free rotation.
  * The outer ring is the root; dragging it orbits the camera instead.
  */
-function RingAssembly({ design, geometries, resetNonce }: RingAssemblyProps) {
+function RingAssembly({ design, geometries, resetNonce, seeThrough }: RingAssemblyProps) {
   const { camera, gl } = useThree()
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
   const count = geometries.length
@@ -240,7 +244,17 @@ function RingAssembly({ design, geometries, resetNonce }: RingAssemblyProps) {
           }
           onPointerOut={draggable ? () => void (!drag.current && (document.body.style.cursor = '')) : undefined}
         >
-          <meshStandardMaterial color={colorOf(design, index)} roughness={0.5} metalness={0} />
+          {/* Keyed so the material rebuilds its shader when transparency switches. */}
+          <meshStandardMaterial
+            key={seeThrough ? 'see-through' : 'solid'}
+            color={colorOf(design, index)}
+            roughness={0.5}
+            metalness={0}
+            transparent={seeThrough}
+            opacity={seeThrough ? 0.4 : 1}
+            depthWrite={!seeThrough}
+            side={seeThrough ? THREE.DoubleSide : THREE.FrontSide}
+          />
         </mesh>
         {index > 0 && renderRing(index - 1)}
       </group>

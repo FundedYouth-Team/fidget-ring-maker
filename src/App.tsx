@@ -34,6 +34,7 @@ export default function App() {
   useEffect(() => saveUnit(unit), [unit])
   const [selectedLayer, setSelectedLayer] = useState(() => loadDesign().colors.length - 1)
   const [mode, setMode] = useState<'2d' | '3d'>('3d')
+  const [seeThrough, setSeeThrough] = useState(false)
   const [viewRequest, setViewRequest] = useState<ViewRequest>({ view: 'home', nonce: 0 })
   const [resetNonce, setResetNonce] = useState(0)
   const [sizingSlot, setSizingSlot] = useState<HTMLDivElement | null>(null)
@@ -42,12 +43,12 @@ export default function App() {
 
   // Textured meshes take a moment to build; defer so 2D dragging stays smooth.
   const deferred = useDeferredValue(design)
-  const { innerDiameter, texture, filled, walls, limited } = deferred
+  const { innerDiameter, texture, textureDepth, filled, walls, limited } = deferred
   const gap = gapOf(deferred)
   const ringCount = ringCountOf(deferred)
   const geometries = useMemo(
-    () => buildRingGeometries(computeRingSpecs(walls, innerDiameter, filled, limited, gap), texture),
-    [walls, innerDiameter, filled, limited, gap, texture],
+    () => buildRingGeometries(computeRingSpecs(walls, innerDiameter, filled, limited, gap), texture, textureDepth),
+    [walls, innerDiameter, filled, limited, gap, texture, textureDepth],
   )
   useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries])
 
@@ -120,7 +121,7 @@ export default function App() {
               geometries.map((_, i) => colorOf(deferred, i)),
               names,
             )
-    const name = `fidget-ring-${ringCount}x${filled ? '-filled' : ''}-${innerDiameter.toFixed(1)}mm-${texture}`
+    const name = `fidget-ring-${ringCount}x${filled ? '-filled' : ''}-${innerDiameter.toFixed(1)}mm-${texture}${texture !== 'smooth' && textureDepth !== 'light' ? `-${textureDepth}` : ''}`
     downloadBlob(blob, `${name}${format === 'stl-zip' ? '-stl.zip' : `.${format}`}`)
   }
 
@@ -144,6 +145,7 @@ export default function App() {
           viewRequest={viewRequest}
           resetNonce={resetNonce}
           active={mode === '3d'}
+          seeThrough={seeThrough}
         />
       </div>
       {mode === '2d' && (
@@ -212,6 +214,8 @@ export default function App() {
           showView('home')
         }}
         onView={showView}
+        seeThrough={seeThrough}
+        onSeeThroughChange={setSeeThrough}
       />
       {mode === '3d' && (
         <p className="pointer-events-none absolute bottom-20 left-1/2 hidden -translate-x-1/2 text-xs whitespace-nowrap text-neutral-500 sm:block">
