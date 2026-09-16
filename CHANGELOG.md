@@ -53,6 +53,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   0.4 to 50 mm (just what the geometry needs to stay valid). Turning it back on brings the design
   back within 12–30 mm and 1.2–6 mm. The setting is saved with the design and in project files;
   older projects open with the limit on.
+- **Ring height** — a "Ring height" setting at the top of the Size panel in 2D mode: how tall the
+  ring stands lying flat, the same on every ring. 4–20 mm (1–100 mm with the size limit off), 10 mm
+  as before. The rounded outside crowns a tenth of the height, so it keeps its shape at any size,
+  and a taller ring raises the inner ring's minimum thickness so its faces don't disappear. The 2D
+  drawing, 3D view and downloads all use it, and it's in the exported file names. It's saved with
+  the design and in project files; older projects open at 10 mm.
+- **2D side view** — a front / side switch in the toolbar, in place of the 3D cube-face buttons
+  while in 2D. Side on shows the ring lying flat on the print bed, cut through its middle and to
+  scale: every ring and the inner fill in its own colour, the height dimensioned down the left and
+  the outer diameter below, with the bed surface under it. The bore is filled in as a dark band
+  carrying the inner diameter and US size, so the ring reads as one solid piece at any height; on a
+  short ring the labels shrink to fit. Drag either face — top or bottom — to
+  set the height, or click a ring to select it. "Show the side view" in the Size panel opens it too.
 - **Ring spacing** — a "Ring spacing" setting at the top of the Size panel in 2D mode, above the
   selected layer. "Fixed" is on by default and keeps 0.2 mm between rings. Turn it off to set the
   spacing between every ring at once (0.1–1 mm, or 0.05–3 mm with the size limit off; with an inner
@@ -65,10 +78,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   outline around the ring, to scale. The 2D drawing now zooms: scroll or pinch on it, or use the
   zoom buttons, "Fit ring" and "Fit bed". The grid switches to 10 mm squares when zoomed out, and
   the chosen printer is remembered between visits.
+- **Collapsible boxes** — the Size and Print bed boxes in 2D mode now have the same collapse chevron
+  as the Layers and Design boxes, so every settings box in 3D and 2D can be folded down to its header.
+  A collapsed Size box leaves the space to the boxes around it.
 - **Outer textures** — smooth, knurled, knurl inset, ribbed, spiral flutes, grooved, wave, hammered,
   dimples, dragon scale, honeycomb, triangles, squares, rectangles (brick), herringbone and chevron on
   the outer ring's outside, each with its own swatch in the picker. Inner rings are always smooth.
-- **Texture depth** — Light, Medium or Deep, below the texture picker once a texture is chosen,
+- **Texture depth** — Light, Medium or Deep, above the texture picker (greyed out while the ring is smooth),
   each showing how deep it cuts. Light is the original 0.35 mm; Medium (the default for new designs)
   cuts 0.7 mm and Deep 1.05 mm, so the pattern is easy to feel on a print. Deeper grooves are also cut
   wider so a 0.4 mm nozzle can form them. The cut never takes more than 55% of the outer ring's
@@ -107,6 +123,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Design box split in two** — the right-hand Design box is now a **Color** box (the selected
+  layer's colors and the Advanced switch) and a **Texture** box below it (texture depth, outer
+  texture, and the inner diameter with its "Size in 2D" button). Each folds down on its own, and both
+  collapse on entering 2D so the sizing panels have room. Each box leaves a little space below its
+  scrolling contents, so swatches and texture tiles no longer run into the bottom edge.
+- **New defaults** — new designs start at a 16.5 mm inner diameter (US size 6), 8.5 mm ring height,
+  2.5 mm inner ring and 1.45 mm outer rings, with 0.3 mm between rings (the Fixed spacing). New rings
+  added to a design get the new thicknesses. Projects saved before height, thickness or spacing could
+  be changed still open at the sizes they were made with.
 - **Design panel inner diameter** — no longer shows the US ring size under it; the diameter itself
   follows the mm / inch toggle. The US size is still shown in 2D sizing mode.
 - **App name** — renamed from "Fidget Ring Maker" to "Fidget Maker" in the browser tab title, the
@@ -114,6 +139,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- In 2D mode on a short window, the collapsed Design box was squeezed by the Size panel below it
+  and its title clipped. It now keeps its height, and the Size panel scrolls instead.
 - In browsers with WebGL turned off (such as Brave with graphics acceleration off), the 3D view was
   blank with no explanation. It now shows a short message saying how to turn it on; the 2D view and
   downloads still work.

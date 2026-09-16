@@ -293,7 +293,9 @@ function RingAssembly({ design, geometries, resetNonce, seeThrough }: RingAssemb
         >
           <RingMaterial design={design} index={index} geometry={geometries[index]} seeThrough={seeThrough} />
         </mesh>
-        {seeThrough && <RingEdges geometry={geometries[index]} color={displayColorsOf(design, index)[0]} />}
+        {seeThrough && (
+          <RingEdges geometry={geometries[index]} color={displayColorsOf(design, index)[0]} width={design.width} />
+        )}
         {index > 0 && renderRing(index - 1)}
       </group>
     )
@@ -308,8 +310,8 @@ function RingAssembly({ design, geometries, resetNonce, seeThrough }: RingAssemb
  * face and radius and joined in angle order. Texture never reaches the faces, so the rims stay clean
  * (crease detection would outline every texture facet instead).
  */
-function rimLines(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
-  const half = RING_WIDTH / 2
+function rimLines(geometry: THREE.BufferGeometry, width: number): THREE.BufferGeometry {
+  const half = width / 2
   const pos = geometry.attributes.position
   const loops = new Map<string, { angle: number; x: number; y: number; z: number }[]>()
   for (let i = 0; i < pos.count; i++) {
@@ -343,8 +345,8 @@ function rimLines(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
  * CAD-style outline for the see-through view. Drawn opaque, so the translucent rings blend over the
  * lines behind them and those read fainter.
  */
-function RingEdges({ geometry, color }: { geometry: THREE.BufferGeometry; color: string }) {
-  const edges = useMemo(() => rimLines(geometry), [geometry])
+function RingEdges({ geometry, color, width }: { geometry: THREE.BufferGeometry; color: string; width: number }) {
+  const edges = useMemo(() => rimLines(geometry, width), [geometry, width])
   useEffect(() => () => edges.dispose(), [edges])
   const lineColor = useMemo(() => new THREE.Color(color).lerp(new THREE.Color('#000000'), 0.65), [color])
   return (
@@ -363,7 +365,7 @@ if ( uCount > 1 ) {
   float t;
   if ( uMode == 0 ) {
     float around = 1.0 - abs( atan( vObjPos.y, vObjPos.x ) / 3.14159265359 );
-    float across = vObjPos.z / ${RING_WIDTH.toFixed(1)} + 0.5;
+    float across = vObjPos.z / uWidth + 0.5;
     float c = cos( uAngle );
     float s = sin( uAngle );
     t = ( around * c + across * s ) / ( c + s );
@@ -394,6 +396,7 @@ function RingMaterial({ design, index, geometry, seeThrough }: RingMaterialProps
       uMode: { value: 0 },
       uAngle: { value: 0 },
       uRadii: { value: new THREE.Vector2(0, 1) },
+      uWidth: { value: RING_WIDTH },
     }),
     [],
   )
@@ -418,6 +421,7 @@ function RingMaterial({ design, index, geometry, seeThrough }: RingMaterialProps
   uniforms.uMode.value = GRADIENTS.findIndex((g) => g.id === finish.gradient)
   uniforms.uAngle.value = THREE.MathUtils.degToRad(finish.angle)
   uniforms.uRadii.value.copy(radii)
+  uniforms.uWidth.value = design.width
 
   const onBeforeCompile = useCallback(
     (shader: THREE.WebGLProgramParametersWithUniforms) => {
@@ -426,7 +430,7 @@ function RingMaterial({ design, index, geometry, seeThrough }: RingMaterialProps
         '#include <begin_vertex>',
         '#include <begin_vertex>\nvObjPos = position;',
       )
-      shader.fragmentShader = `uniform vec3 uColors[ 3 ];\nuniform int uCount;\nuniform int uMode;\nuniform float uAngle;\nuniform vec2 uRadii;\nvarying vec3 vObjPos;\n${shader.fragmentShader}`.replace(
+      shader.fragmentShader = `uniform vec3 uColors[ 3 ];\nuniform int uCount;\nuniform int uMode;\nuniform float uAngle;\nuniform vec2 uRadii;\nuniform float uWidth;\nvarying vec3 vObjPos;\n${shader.fragmentShader}`.replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         GRADIENT_FRAGMENT,
       )

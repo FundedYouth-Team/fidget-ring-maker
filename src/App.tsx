@@ -4,7 +4,7 @@ import { Designer2D } from './components/Designer2D'
 import { ExportCard, type ExportFormat } from './components/ExportCard'
 import { HelpDialog, loadWelcome, saveWelcome, type WelcomeState } from './components/HelpDialog'
 import { LayersCard } from './components/LayersCard'
-import { Toolbar } from './components/Toolbar'
+import { Toolbar, type View2D } from './components/Toolbar'
 import { Viewer3D, type ViewName, type ViewRequest } from './components/Viewer3D'
 import {
   addLayer,
@@ -34,6 +34,7 @@ export default function App() {
   useEffect(() => saveUnit(unit), [unit])
   const [selectedLayer, setSelectedLayer] = useState(() => loadDesign().colors.length - 1)
   const [mode, setMode] = useState<'2d' | '3d'>('3d')
+  const [view2d, setView2d] = useState<View2D>('front')
   const [seeThrough, setSeeThrough] = useState(false)
   const [viewRequest, setViewRequest] = useState<ViewRequest>({ view: 'home', nonce: 0 })
   const [resetNonce, setResetNonce] = useState(0)
@@ -43,12 +44,17 @@ export default function App() {
 
   // Textured meshes take a moment to build; defer so 2D dragging stays smooth.
   const deferred = useDeferredValue(design)
-  const { innerDiameter, texture, textureDepth, filled, walls, limited } = deferred
+  const { innerDiameter, texture, textureDepth, filled, walls, limited, width } = deferred
   const gap = gapOf(deferred)
   const ringCount = ringCountOf(deferred)
   const geometries = useMemo(
-    () => buildRingGeometries(computeRingSpecs(walls, innerDiameter, filled, limited, gap), texture, textureDepth),
-    [walls, innerDiameter, filled, limited, gap, texture, textureDepth],
+    () =>
+      buildRingGeometries(
+        computeRingSpecs(walls, { innerDiameter, filled, limited, gap, width }),
+        texture,
+        textureDepth,
+      ),
+    [walls, innerDiameter, filled, limited, gap, width, texture, textureDepth],
   )
   useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries])
 
@@ -56,6 +62,7 @@ export default function App() {
   const setDiameter = (diameter: number) => setDesign((d) => withValidWalls({ ...d, innerDiameter: diameter }))
   const setWall = (ring: number, wall: number) =>
     setDesign((d) => withValidWalls({ ...d, walls: d.walls.map((w, i) => (i === ring ? wall : w)) }))
+  const setWidth = (width: number) => setDesign((d) => withValidWalls({ ...d, width }))
   const setLimited = (limited: boolean) => setDesign((d) => withValidWalls({ ...d, limited }))
   const setSpacing = (patch: Pick<Partial<Design>, 'fixedGap' | 'gap'>) =>
     setDesign((d) => withValidWalls({ ...d, ...patch }))
@@ -113,15 +120,16 @@ export default function App() {
     const names = geometries.map((_, i) => partName(deferred, i))
     const blob =
       format === 'stl'
-        ? buildStl(geometries)
+        ? buildStl(geometries, width)
         : format === 'stl-zip'
-          ? buildStlZip(geometries, names)
+          ? buildStlZip(geometries, names, width)
           : build3mf(
               geometries,
               geometries.map((_, i) => colorOf(deferred, i)),
               names,
+              width,
             )
-    const name = `fidget-ring-${ringCount}x${filled ? '-filled' : ''}-${innerDiameter.toFixed(1)}mm-${texture}${texture !== 'smooth' && textureDepth !== 'light' ? `-${textureDepth}` : ''}`
+    const name = `fidget-ring-${ringCount}x${filled ? '-filled' : ''}-${innerDiameter.toFixed(1)}mm-${width.toFixed(1)}w-${texture}${texture !== 'smooth' && textureDepth !== 'light' ? `-${textureDepth}` : ''}`
     downloadBlob(blob, `${name}${format === 'stl-zip' ? '-stl.zip' : `.${format}`}`)
   }
 
@@ -156,6 +164,9 @@ export default function App() {
           onSelectLayer={setSelectedLayer}
           onDiameterChange={setDiameter}
           onWallChange={setWall}
+          onWidthChange={setWidth}
+          view={view2d}
+          onViewChange={setView2d}
           onLimitedChange={setLimited}
           onSpacingChange={setSpacing}
           panelSlot={sizingSlot}
@@ -192,7 +203,7 @@ export default function App() {
           onSetFilled={setFilled}
         />
       </div>
-      {/* Design box, with the 2D sizing panel below it; the two share the height and scroll. */}
+      {/* Color and Texture boxes, with the 2D sizing panel below them; the two share the height and scroll. */}
       <div className="pointer-events-none absolute top-4 right-4 bottom-20 flex w-[min(300px,calc(100%-2rem))] flex-col gap-3">
         <ControlPanel
           design={design}
@@ -209,6 +220,8 @@ export default function App() {
         onModeChange={setMode}
         unit={unit}
         onUnitChange={setUnit}
+        view2d={view2d}
+        onView2dChange={setView2d}
         onReset={() => {
           setResetNonce((n) => n + 1)
           showView('home')

@@ -1,10 +1,9 @@
 import * as THREE from 'three'
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 import { strToU8, zipSync } from 'fflate'
-import { RING_WIDTH } from './ring'
 
 // Both formats lift the rings by half their width so they sit flat on the print bed.
-const BED_OFFSET = RING_WIDTH / 2
+const bedOffset = (width: number) => width / 2
 
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -15,29 +14,29 @@ export function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function buildStl(geometries: THREE.BufferGeometry[]): Blob {
+export function buildStl(geometries: THREE.BufferGeometry[], width: number): Blob {
   const group = new THREE.Group()
   geometries.forEach((g) => group.add(new THREE.Mesh(g)))
-  group.position.z = BED_OFFSET
+  group.position.z = bedOffset(width)
   group.updateMatrixWorld(true)
   const data = new STLExporter().parse(group, { binary: true })
   return new Blob([data], { type: 'model/stl' })
 }
 
 /** A zip of one STL per part, numbered inner to outer, all keeping their print-in-place positions. */
-export function buildStlZip(geometries: THREE.BufferGeometry[], names: string[]): Blob {
+export function buildStlZip(geometries: THREE.BufferGeometry[], names: string[], width: number): Blob {
   const files: Record<string, Uint8Array> = {}
   geometries.forEach((g, i) => {
     const slug = names[i].toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    const data = new STLExporter().parse(placed(g), { binary: true })
+    const data = new STLExporter().parse(placed(g, width), { binary: true })
     files[`${i + 1}-${slug}.stl`] = new Uint8Array(data.buffer)
   })
   return new Blob([zipSync(files, { level: 6 })], { type: 'application/zip' })
 }
 
-function placed(geometry: THREE.BufferGeometry): THREE.Object3D {
+function placed(geometry: THREE.BufferGeometry, width: number): THREE.Object3D {
   const mesh = new THREE.Mesh(geometry)
-  mesh.position.z = BED_OFFSET
+  mesh.position.z = bedOffset(width)
   mesh.updateMatrixWorld(true)
   return mesh
 }
@@ -46,12 +45,12 @@ function placed(geometry: THREE.BufferGeometry): THREE.Object3D {
  * 3MF: a zip holding an XML model. Each ring is its own object, tagged with its
  * colour as a base material so multi-colour slicers can pick it up.
  */
-export function build3mf(geometries: THREE.BufferGeometry[], colors: string[], names: string[]): Blob {
+export function build3mf(geometries: THREE.BufferGeometry[], colors: string[], names: string[], width: number): Blob {
   const materials = geometries
     .map((_, i) => `<base name="${names[i]}" displaycolor="${toRgbaHex(colors[i])}" />`)
     .join('')
 
-  const objects = geometries.map((g, i) => meshObject(g, i + 2, i, names[i])).join('\n')
+  const objects = geometries.map((g, i) => meshObject(g, i + 2, i, names[i], width)).join('\n')
   const items = geometries.map((_, i) => `<item objectid="${i + 2}" />`).join('')
 
   const model = `<?xml version="1.0" encoding="UTF-8"?>
@@ -146,7 +145,13 @@ const settingLines = (settings: Record<string, string>, attrs: string) =>
  * Ring meshes duplicate vertices where their strips meet (for crisp shading).
  * 3MF expects manifold meshes, so weld identical positions back together.
  */
-function meshObject(geometry: THREE.BufferGeometry, id: number, materialIndex: number, name: string): string {
+function meshObject(
+  geometry: THREE.BufferGeometry,
+  id: number,
+  materialIndex: number,
+  name: string,
+  width: number,
+): string {
   const pos = geometry.attributes.position.array
   const index = geometry.index!.array
   const remap = new Uint32Array(pos.length / 3)
@@ -162,7 +167,7 @@ function meshObject(geometry: THREE.BufferGeometry, id: number, materialIndex: n
     if (welded === undefined) {
       welded = vertices.length
       seen.set(key, welded)
-      vertices.push(`<vertex x="${round(x)}" y="${round(y)}" z="${round(z + BED_OFFSET)}" />`)
+      vertices.push(`<vertex x="${round(x)}" y="${round(y)}" z="${round(z + bedOffset(width))}" />`)
     }
     remap[v] = welded
   }

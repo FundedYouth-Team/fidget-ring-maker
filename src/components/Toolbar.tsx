@@ -9,10 +9,15 @@ interface ToolbarProps {
   onUnitChange: (unit: Unit) => void
   onReset: () => void
   onView: (view: ViewName) => void
+  /** Which way the 2D drawing looks at the ring: face on, or edge on for its height. */
+  view2d: View2D
+  onView2dChange: (view: View2D) => void
   /** Rings drawn semi-transparent in 3D, so texture depth and inner rings show through. */
   seeThrough: boolean
   onSeeThroughChange: (on: boolean) => void
 }
+
+export type View2D = 'front' | 'side'
 
 const CUBE_FACES: { view: ViewName; label: string; points: string }[] = [
   { view: 'front', label: 'Front', points: '3,7 13,7 13,17 3,17' },
@@ -30,6 +35,8 @@ export function Toolbar({
   onUnitChange,
   onReset,
   onView,
+  view2d,
+  onView2dChange,
   seeThrough,
   onSeeThroughChange,
 }: ToolbarProps) {
@@ -42,18 +49,28 @@ export function Toolbar({
       <Divider />
       <Segmented options={['3d', '2d'] as const} value={mode} onChange={onModeChange} uppercase />
       <Divider />
-      {CUBE_FACES.map((f) => (
-        <ToolButton key={f.view} label={`${f.label} view`} onClick={() => onView(f.view)} disabled={!in3d}>
-          <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <polygon points={f.points} fill="currentColor" fillOpacity="0.55" stroke="none" />
-            <rect x="3" y="7" width="10" height="10" />
-            <polyline points="3,7 7,3 17,3 17,13 13,17" />
-            <line x1="13" y1="7" x2="17" y2="3" />
-            <polyline points="7,3 7,13 3,17" strokeOpacity="0.45" />
-            <line x1="7" y1="13" x2="17" y2="13" strokeOpacity="0.45" />
-          </svg>
-        </ToolButton>
-      ))}
+      {/* The cube faces only mean something in 3D; 2D gets its own pair of views instead. */}
+      {in3d ? (
+        CUBE_FACES.map((f) => (
+          <ToolButton key={f.view} label={`${f.label} view`} onClick={() => onView(f.view)}>
+            <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.2">
+              <polygon points={f.points} fill="currentColor" fillOpacity="0.55" stroke="none" />
+              <rect x="3" y="7" width="10" height="10" />
+              <polyline points="3,7 7,3 17,3 17,13 13,17" />
+              <line x1="13" y1="7" x2="17" y2="3" />
+              <polyline points="7,3 7,13 3,17" strokeOpacity="0.45" />
+              <line x1="7" y1="13" x2="17" y2="13" strokeOpacity="0.45" />
+            </svg>
+          </ToolButton>
+        ))
+      ) : (
+        <Segmented
+          options={['front', 'side'] as const}
+          value={view2d}
+          onChange={onView2dChange}
+          title="Front: sizing across the ring · Side: the ring lying flat, for its height"
+        />
+      )}
       <Divider />
       <button
         role="switch"

@@ -26,8 +26,8 @@ pnpm preview   # serve the production build
 1. **Build your layers.** The Layers box (top left) starts with an inner ring and one outer ring.
    Use **+** to add outer rings (up to 5 in total), or switch the inner ring from **Standard** to
    **Fill** for a solid spinning core instead of a finger hole. Select a layer to work on it.
-2. **Style it.** In the Design panel (top right), pick a color for the selected layer from the 24
-   swatches or a custom color, and choose a texture for the outer ring.
+2. **Style it.** In the Color box (top right), pick a color for the selected layer from the 24
+   swatches or a custom color. In the Texture box below it, choose a texture for the outer ring.
 3. **Size it.** Switch to **2D** in the toolbar for a to-scale front view. Set the inner diameter
    with the drag handle, slider, number box or US ring size menu. Set each ring's thickness by
    dragging its outer handle or typing a thickness or outer diameter. The Size panel also has the
@@ -53,7 +53,7 @@ Use **Save** to download the design as a `.fm.json` project file, **Open** to lo
   buttons) and "Fit ring" / "Fit bed".
 - **Size limit:** on by default, it keeps the inner diameter at 12–30 mm and thickness at 1.2–6 mm.
   Turn it off to allow a 4–200 mm inner diameter and 0.4–50 mm thickness.
-- **Ring spacing:** fixed at 0.2 mm by default. Turn Fixed off to set the spacing between every
+- **Ring spacing:** fixed at 0.3 mm by default. Turn Fixed off to set the spacing between every
   ring, and use Preview to see a to-scale cross-section with a close-up of the gap.
 - **Print bed outline:** Bambu A1 mini (180 mm), Bambu A1 / P1S / X1C (256 mm) or Sovol SV06 Plus
   (300 mm).
@@ -103,7 +103,7 @@ src/
   components/
     Viewer3D.tsx          3D stage, orbit controls, spinning inner rings
     Designer2D.tsx        to-scale 2D sizing view, Size and Print bed panels
-    ControlPanel.tsx      Design panel: colors, texture, 2D/3D switch
+    ControlPanel.tsx      Color and Texture boxes, 2D/3D switch
     LayersCard.tsx        layer list, add/delete, Standard/Fill toggle
     ExportCard.tsx        New / Open / Save / help and STL / 3MF downloads
     HelpDialog.tsx        welcome popup with the how-to video
@@ -121,15 +121,18 @@ src/
 The dimensions were measured from reference STL files (kept locally in `_stl/`, which isn't in the
 repo) and are implemented in `src/lib/ring.ts`:
 
-- Every ring is 10 mm wide, with 0.2 mm between rings by default. The spacing can be 0.1–1 mm, or
+- Every ring is 8.5 mm wide by default, with 0.3 mm between rings (the reference STLs are 10 mm wide with 0.2 mm). The whole design shares one width
+  — shown in the UI as the ring's *height*, since it's how tall the ring stands lying flat, and set
+  in the 2D side view. It can be 4–20 mm, or 1–100 mm with the size limit off. The spacing can be 0.1–1 mm, or
   0.05–3 mm with the size limit off. With an inner fill, the maximum spacing is lower so the core
   keeps its faces.
 - Where rings meet, their faces are spheres centred on the ring. That lets each inner ring turn
   freely in any direction without hitting the ring around it.
-- The outside of the outer ring is rounded (13 mm radius, 1 mm crown).
-- Thickness is a ring's wall at its widest. It defaults to 3.8 mm for the inner ring and 2 mm for
-  the others. On small bores the inner ring has a higher minimum thickness, so its flat faces don't
-  disappear where the outer sphere curves in.
+- The outside of the outer ring is rounded, crowning a tenth of the width past its face edges —
+  a 13 mm radius and 1 mm crown at a 10 mm width.
+- Thickness is a ring's wall at its widest. It defaults to 2.5 mm for the inner ring and 1.45 mm
+  for the others. On small bores — and on wider rings, whose spheres bulge further — the inner ring has
+  a higher minimum thickness, so its flat faces don't disappear where the outer sphere curves in.
 - An inner fill is a solid core with a spherical outside. The inner ring's bore becomes a matching
   sphere one clearance away that still opens at the inner diameter on each face, so the core is
   held in place and spins freely.

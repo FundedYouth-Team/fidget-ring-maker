@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronsDown, ChevronsUp, Paintbrush, Ruler } from 'lucide-react'
+import { ChevronsDown, ChevronsUp, Palette, Ruler, Waves, type LucideIcon } from 'lucide-react'
 import {
   GRADIENTS,
   MAX_GRADIENT_ANGLE,
@@ -31,8 +31,8 @@ interface ControlPanelProps {
   selectedLayer: number
 }
 
+/** The Color and Texture boxes, stacked; they share the height and scroll. */
 export function ControlPanel({ design, onChange, unit, mode, onModeChange, selectedLayer }: ControlPanelProps) {
-  const [open, setOpen] = useState(() => window.matchMedia('(min-width: 640px)').matches)
   const finish = finishOf(design, selectedLayer)
   // Which of the selected part's colours the swatches edit: 0 is its main (exported) colour.
   const [slot, setSlot] = useState(0)
@@ -42,16 +42,7 @@ export function ControlPanel({ design, onChange, unit, mode, onModeChange, selec
   const outerSpec = specsOf(design).at(-1)!
   const depths = TEXTURE_DEPTHS.map((d) => ({ ...d, actual: textureDepthMm(outerSpec, d.id) }))
   const depthCapped = depths.some((d) => d.actual < d.depth - 1e-6)
-
-  // Collapse in 2D so the sizing panel below has room; reopen on wide screens back in 3D.
-  const firstMode = useRef(true)
-  useEffect(() => {
-    if (firstMode.current) {
-      firstMode.current = false
-      return
-    }
-    setOpen(mode === '3d' && window.matchMedia('(min-width: 640px)').matches)
-  }, [mode])
+  const smooth = design.texture === 'smooth'
 
   const setFinish = (patch: Partial<ColorFinish>) => {
     const finishes = design.colors.map((_, i) => finishOf(design, i))
@@ -72,186 +63,219 @@ export function ControlPanel({ design, onChange, unit, mode, onModeChange, selec
   }
 
   return (
-    <div className="pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-md bg-panel text-white shadow-lg backdrop-blur-sm">
+    <>
+      <Box title="Color" icon={Palette} mode={mode}>
+        <Section
+          title={partName(design, selectedLayer)}
+          action={
+            <Switch
+              label="Advanced"
+              checked={design.advancedColor}
+              onChange={(advancedColor) => onChange({ advancedColor })}
+              title={
+                design.advancedColor
+                  ? 'Turn off to show every part in a single color'
+                  : 'Show dual or tri-color gradients in the viewer'
+              }
+            />
+          }
+        >
+          {design.advancedColor && (
+            <div className="mb-3 space-y-2.5">
+              <Segmented
+                options={COLOR_COUNTS.map((c) => ({ id: c.count, label: c.label }))}
+                value={finish.count}
+                onChange={(count) => setFinish({ count })}
+              />
+              {finish.count > 1 && (
+                <>
+                  <div className="flex gap-1.5">
+                    {[colorOf(design, selectedLayer), ...finish.extras.slice(0, finish.count - 1)].map((c, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setSlot(i)}
+                        className={`flex flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-[11px] transition ${
+                          activeSlot === i ? 'bg-white/25 ring-1 ring-white/70' : 'bg-black/15 hover:bg-white/10'
+                        }`}
+                      >
+                        <span className="size-3.5 shrink-0 rounded-full border border-white/90" style={{ background: c }} />
+                        Color {i + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="mb-1.5 text-[11px] text-white/80">Gradient mode</div>
+                    <Segmented
+                      options={GRADIENTS}
+                      value={finish.gradient}
+                      onChange={(gradient) => setFinish({ gradient })}
+                    />
+                  </div>
+                  {finish.gradient === 'linear' && (
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-white/80">
+                        Gradient angle
+                        <span className="font-mono text-white/60">{Math.round(finish.angle)}°</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={MAX_GRADIENT_ANGLE}
+                        step={1}
+                        value={finish.angle}
+                        onChange={(e) => setFinish({ angle: parseFloat(e.target.value) })}
+                        className="mt-1.5 w-full"
+                      />
+                      <div className="flex justify-between text-[10px] text-white/60">
+                        <button className="hover:text-white" onClick={() => setFinish({ angle: 0 })}>
+                          Around ring
+                        </button>
+                        <button className="hover:text-white" onClick={() => setFinish({ angle: MAX_GRADIENT_ANGLE })}>
+                          Face to face
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              <p className="text-[11px] text-white/60">
+                For display only — the 3MF exports each part in its Color 1.
+              </p>
+            </div>
+          )}
+          <div className="grid grid-cols-6 gap-2.5">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                title={c}
+                onClick={() => setColor(c)}
+                className={`aspect-square rounded-full border-2 transition hover:scale-110 ${
+                  activeColor.toUpperCase() === c ? 'border-white ring-2 ring-white/60 ring-offset-2 ring-offset-neutral-500' : 'border-white/90'
+                }`}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+          <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-white/80">
+            <span
+              className="relative size-6 overflow-hidden rounded-full border-2 border-white/90"
+              style={{ background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }}
+            >
+              <input
+                type="color"
+                value={activeColor}
+                onChange={(e) => setColor(e.target.value.toUpperCase())}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              />
+            </span>
+            Custom color
+            <span className="ml-auto font-mono text-white/60">{activeColor.toUpperCase()}</span>
+          </label>
+        </Section>
+      </Box>
+
+      <Box title="Texture" icon={Waves} mode={mode}>
+        <Section title="Texture depth">
+          <div className={smooth ? 'pointer-events-none opacity-40' : undefined} aria-disabled={smooth}>
+            <div className="grid grid-cols-3 gap-1 rounded bg-black/20 p-1">
+              {depths.map((d) => (
+                <button
+                  key={d.id}
+                  disabled={smooth}
+                  onClick={() => onChange({ textureDepth: d.id })}
+                  className={`flex flex-col items-center rounded px-1 py-1.5 text-xs leading-tight transition ${
+                    design.textureDepth === d.id ? 'bg-white text-neutral-700' : 'hover:bg-white/15'
+                  }`}
+                >
+                  {d.label}
+                  <span className="text-[10px] tabular-nums opacity-70">
+                    {formatLength(d.actual, unit, unit === 'mm' ? 2 : 3)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="mt-1.5 text-[11px] text-white/60">
+            {smooth
+              ? 'Pick an outer texture below to set its depth.'
+              : depthCapped
+                ? 'Limited by the outer ring’s thickness — make it thicker in 2D sizing to cut deeper.'
+                : 'Deeper textures are easier to feel on a print.'}
+          </p>
+        </Section>
+
+        <Section title="Outer texture">
+          <div className="grid grid-cols-3 gap-2">
+            {TEXTURES.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => onChange({ texture: t.id })}
+                className={`flex flex-col items-center gap-1 rounded p-1.5 text-[11px] transition ${
+                  design.texture === t.id ? 'bg-white/25 ring-1 ring-white/70' : 'bg-black/15 hover:bg-white/10'
+                }`}
+              >
+                <TextureSwatch texture={t.id} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-white/60">Inner rings are always smooth so they spin freely.</p>
+        </Section>
+
+        <Section title="Inner diameter">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <div className="text-lg leading-tight font-semibold">{formatLength(design.innerDiameter, unit)}</div>
+            </div>
+            <button
+              onClick={() => onModeChange(mode === '2d' ? '3d' : '2d')}
+              className={`flex items-center gap-1.5 rounded px-3 py-2 text-xs transition ${
+                mode === '2d' ? 'bg-white text-neutral-700' : 'bg-black/20 hover:bg-white/15'
+              }`}
+            >
+              <Ruler size={14} />
+              {mode === '2d' ? 'Back to 3D' : 'Size in 2D'}
+            </button>
+          </div>
+        </Section>
+      </Box>
+    </>
+  )
+}
+
+/** A collapsible settings box. Collapses in 2D so the sizing panel below has room; reopens on wide screens back in 3D. */
+function Box({ title, icon: Icon, mode, children }: { title: string; icon: LucideIcon; mode: '2d' | '3d'; children: React.ReactNode }) {
+  const [open, setOpen] = useState(() => window.matchMedia('(min-width: 640px)').matches)
+
+  const firstMode = useRef(true)
+  useEffect(() => {
+    if (firstMode.current) {
+      firstMode.current = false
+      return
+    }
+    setOpen(mode === '3d' && window.matchMedia('(min-width: 640px)').matches)
+  }, [mode])
+
+  return (
+    // Collapsed it's just the header, so it keeps its height and leaves the rest to the boxes below.
+    <div
+      className={`pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-md bg-panel text-white shadow-lg backdrop-blur-sm ${
+        open ? '' : 'shrink-0'
+      }`}
+    >
       <button
         className="flex w-full shrink-0 items-center gap-3 px-4 py-3 text-sm hover:bg-white/5"
         onClick={() => setOpen(!open)}
       >
-        <Paintbrush size={16} />
-        <span className="flex-1 text-left">Design</span>
+        <Icon size={16} />
+        <span className="flex-1 text-left">{title}</span>
         {open ? <ChevronsUp size={16} /> : <ChevronsDown size={16} />}
       </button>
 
       {open && (
-        <div className="min-h-0 space-y-5 overflow-y-auto border-t border-white/15 px-4 pt-4 pb-5">
-          <Section
-            title={`Color · ${partName(design, selectedLayer)}`}
-            action={
-              <Switch
-                label="Advanced"
-                checked={design.advancedColor}
-                onChange={(advancedColor) => onChange({ advancedColor })}
-                title={
-                  design.advancedColor
-                    ? 'Turn off to show every part in a single color'
-                    : 'Show dual or tri-color gradients in the viewer'
-                }
-              />
-            }
-          >
-            {design.advancedColor && (
-              <div className="mb-3 space-y-2.5">
-                <Segmented
-                  options={COLOR_COUNTS.map((c) => ({ id: c.count, label: c.label }))}
-                  value={finish.count}
-                  onChange={(count) => setFinish({ count })}
-                />
-                {finish.count > 1 && (
-                  <>
-                    <div className="flex gap-1.5">
-                      {[colorOf(design, selectedLayer), ...finish.extras.slice(0, finish.count - 1)].map((c, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setSlot(i)}
-                          className={`flex flex-1 items-center gap-1.5 rounded px-2 py-1.5 text-[11px] transition ${
-                            activeSlot === i ? 'bg-white/25 ring-1 ring-white/70' : 'bg-black/15 hover:bg-white/10'
-                          }`}
-                        >
-                          <span className="size-3.5 shrink-0 rounded-full border border-white/90" style={{ background: c }} />
-                          Color {i + 1}
-                        </button>
-                      ))}
-                    </div>
-                    <div>
-                      <div className="mb-1.5 text-[11px] text-white/80">Gradient mode</div>
-                      <Segmented
-                        options={GRADIENTS}
-                        value={finish.gradient}
-                        onChange={(gradient) => setFinish({ gradient })}
-                      />
-                    </div>
-                    {finish.gradient === 'linear' && (
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] text-white/80">
-                          Gradient angle
-                          <span className="font-mono text-white/60">{Math.round(finish.angle)}°</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={MAX_GRADIENT_ANGLE}
-                          step={1}
-                          value={finish.angle}
-                          onChange={(e) => setFinish({ angle: parseFloat(e.target.value) })}
-                          className="mt-1.5 w-full"
-                        />
-                        <div className="flex justify-between text-[10px] text-white/60">
-                          <button className="hover:text-white" onClick={() => setFinish({ angle: 0 })}>
-                            Around ring
-                          </button>
-                          <button className="hover:text-white" onClick={() => setFinish({ angle: MAX_GRADIENT_ANGLE })}>
-                            Face to face
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-                <p className="text-[11px] text-white/60">
-                  For display only — the 3MF exports each part in its Color 1.
-                </p>
-              </div>
-            )}
-            <div className="grid grid-cols-6 gap-2.5">
-              {PALETTE.map((c) => (
-                <button
-                  key={c}
-                  title={c}
-                  onClick={() => setColor(c)}
-                  className={`aspect-square rounded-full border-2 transition hover:scale-110 ${
-                    activeColor.toUpperCase() === c ? 'border-white ring-2 ring-white/60 ring-offset-2 ring-offset-neutral-500' : 'border-white/90'
-                  }`}
-                  style={{ background: c }}
-                />
-              ))}
-            </div>
-            <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs text-white/80">
-              <span
-                className="relative size-6 overflow-hidden rounded-full border-2 border-white/90"
-                style={{ background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }}
-              >
-                <input
-                  type="color"
-                  value={activeColor}
-                  onChange={(e) => setColor(e.target.value.toUpperCase())}
-                  className="absolute inset-0 cursor-pointer opacity-0"
-                />
-              </span>
-              Custom color
-              <span className="ml-auto font-mono text-white/60">{activeColor.toUpperCase()}</span>
-            </label>
-          </Section>
-
-          <Section title="Inner diameter">
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <div className="text-lg leading-tight font-semibold">{formatLength(design.innerDiameter, unit)}</div>
-              </div>
-              <button
-                onClick={() => onModeChange(mode === '2d' ? '3d' : '2d')}
-                className={`flex items-center gap-1.5 rounded px-3 py-2 text-xs transition ${
-                  mode === '2d' ? 'bg-white text-neutral-700' : 'bg-black/20 hover:bg-white/15'
-                }`}
-              >
-                <Ruler size={14} />
-                {mode === '2d' ? 'Back to 3D' : 'Size in 2D'}
-              </button>
-            </div>
-          </Section>
-
-          <Section title="Outer texture">
-            <div className="grid grid-cols-3 gap-2">
-              {TEXTURES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => onChange({ texture: t.id })}
-                  className={`flex flex-col items-center gap-1 rounded p-1.5 text-[11px] transition ${
-                    design.texture === t.id ? 'bg-white/25 ring-1 ring-white/70' : 'bg-black/15 hover:bg-white/10'
-                  }`}
-                >
-                  <TextureSwatch texture={t.id} />
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            {design.texture !== 'smooth' && (
-              <div className="mt-3">
-                <div className="mb-1.5 text-[11px] text-white/80">Texture depth</div>
-                <div className="grid grid-cols-3 gap-1 rounded bg-black/20 p-1">
-                  {depths.map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => onChange({ textureDepth: d.id })}
-                      className={`flex flex-col items-center rounded px-1 py-1.5 text-xs leading-tight transition ${
-                        design.textureDepth === d.id ? 'bg-white text-neutral-700' : 'hover:bg-white/15'
-                      }`}
-                    >
-                      {d.label}
-                      <span className="text-[10px] tabular-nums opacity-70">
-                        {formatLength(d.actual, unit, unit === 'mm' ? 2 : 3)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-[11px] text-white/60">
-                  {depthCapped
-                    ? 'Limited by the outer ring’s thickness — make it thicker in 2D sizing to cut deeper.'
-                    : 'Deeper textures are easier to feel on a print.'}
-                </p>
-              </div>
-            )}
-            <p className="mt-2 text-[11px] text-white/60">Inner rings are always smooth so they spin freely.</p>
-          </Section>
+        // The bottom margin keeps a strip of box below the scrolling area, so cut-off content doesn't run to the edge.
+        <div className="mb-3 min-h-0 space-y-5 overflow-y-auto border-t border-white/15 px-4 pt-4 pb-2">
+          {children}
         </div>
       )}
     </div>

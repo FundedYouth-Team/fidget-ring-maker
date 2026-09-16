@@ -2,30 +2,44 @@ import * as THREE from 'three'
 
 /*
  * Ring geometry, measured from the reference `_stl/Fidget+Ring.stl`:
- *  - every ring is 10mm wide
- *  - 0.2mm clearance between rings
+ *  - every ring is 8.5mm wide by default (the reference is 10mm), and the whole design shares one width
+ *  - 0.3mm clearance between rings by default (the reference is 0.2mm)
  *  - the surfaces where rings meet are spheres centred on the ring, so an
  *    inner ring can tumble in any direction without colliding with its host
- *  - the outer ring's outside is a 13mm-radius arc (1mm crown)
+ *  - the outer ring's outside is an arc crowning a tenth of the width (a 13mm
+ *    radius, 1mm crown, at a 10mm width)
  *  - an optional inner fill is a solid core with a spherical outside, held by a
  *    spherical bore whose opening on each face stays at the inner diameter
- * Rings are built around the Z axis, with z in [-5, 5].
+ * Rings are built around the Z axis, with z in [-width / 2, width / 2].
  */
 
-export const RING_WIDTH = 10
-const HALF = RING_WIDTH / 2
+/** Default ring width, face to face. */
+export const RING_WIDTH = 8.5
+export const MIN_WIDTH = 4
+export const MAX_WIDTH = 20
 /** Default clearance between rings, used while ring spacing is fixed. */
-export const GAP = 0.2
+export const GAP = 0.3
 const MIN_GAP = 0.1
 const MAX_GAP = 1
 /** Default wall thickness at the mid-plane: bore → sphere for the inner ring, sphere → sphere for the rest. */
-export const INNER_RING_WALL = 3.8
-export const RING_WALL = 2
+export const INNER_RING_WALL = 2.5
+export const RING_WALL = 1.45
+/** The original defaults, for opening designs saved before a setting could be changed. */
+export const LEGACY_RING_WIDTH = 10
+export const LEGACY_GAP = 0.2
+export const LEGACY_INNER_RING_WALL = 3.8
+export const LEGACY_RING_WALL = 2
 export const MAX_WALL = 6
 const MIN_WALL = 1.2
 /** Thinnest the inner ring's flat face may get where it meets the bore. */
 const MIN_FACE = 0.8
-const ROUND_RADIUS = 13
+/** How far the outer ring's rounded outside crowns past its face edges, as a share of the width. */
+const CROWN_SHARE = 0.1
+/** Radius of the arc that crowns `crown` over a width — 13 at a 10mm width. */
+const roundRadius = (width: number) => {
+  const crown = width * CROWN_SHARE
+  return ((width / 2) ** 2 + crown * crown) / (2 * crown)
+}
 
 export const MIN_DIAMETER = 12
 export const MAX_DIAMETER = 30
@@ -42,6 +56,8 @@ const FREE_MAX_WALL = 50
 const FREE_MIN_FACE = 0.2
 const FREE_MIN_GAP = 0.05
 const FREE_MAX_GAP = 3
+const FREE_MIN_WIDTH = 1
+const FREE_MAX_WIDTH = 100
 
 export const diameterRange = (limited: boolean) =>
   limited ? { min: MIN_DIAMETER, max: MAX_DIAMETER } : { min: FREE_MIN_DIAMETER, max: FREE_MAX_DIAMETER }
@@ -49,6 +65,25 @@ export const diameterRange = (limited: boolean) =>
 export const clampDiameter = (diameter: number, limited: boolean) => {
   const { min, max } = diameterRange(limited)
   return Math.min(max, Math.max(min, diameter))
+}
+
+export const widthRange = (limited: boolean) =>
+  limited ? { min: MIN_WIDTH, max: MAX_WIDTH } : { min: FREE_MIN_WIDTH, max: FREE_MAX_WIDTH }
+
+export const clampWidth = (width: number, limited: boolean) => {
+  const { min, max } = widthRange(limited)
+  return Math.min(max, Math.max(min, Math.round(width * 1000) / 1000))
+}
+
+/** The whole-design measurements every ring's shape is derived from. */
+export interface Sizing {
+  innerDiameter: number
+  filled: boolean
+  limited: boolean
+  /** Clearance between rings, in mm. */
+  gap: number
+  /** Ring width from face to face, in mm. */
+  width: number
 }
 
 export type SurfaceKind = 'cylinder' | 'sphere' | 'rounded'
@@ -62,40 +97,46 @@ export interface Surface {
 export interface RingSpec {
   inner: Surface
   outer: Surface
+  /** Face-to-face width the surfaces were laid out for. */
+  width: number
 }
 
-export function surfaceRadius(s: Surface, z: number): number {
+export function surfaceRadius(s: Surface, z: number, width: number): number {
   switch (s.kind) {
     case 'cylinder':
       return s.radius
     case 'sphere':
       return Math.sqrt(s.radius * s.radius - z * z)
-    case 'rounded':
-      return s.radius + Math.sqrt(ROUND_RADIUS * ROUND_RADIUS - z * z) - ROUND_RADIUS
+    case 'rounded': {
+      const round = roundRadius(width)
+      return s.radius + Math.sqrt(round * round - z * z) - round
+    }
   }
 }
 
-export const edgeRadius = (s: Surface) => surfaceRadius(s, HALF)
+export const edgeRadius = (s: Surface, width: number) => surfaceRadius(s, width / 2, width)
 
 /**
  * Thickness limits for ring `ring` (innermost = 0). The inner ring's outer sphere
  * curves in towards the faces, so a thin wall on a small bore would leave no flat
  * face at all — and with a fill, the socket also thins the wall at the mid-plane.
+ * A wider ring bulges its sphere further, so it needs a thicker wall still.
  * `limited` false lifts the usual limits down to what the geometry needs.
  */
-export function wallRange(ring: number, innerDiameter: number, filled: boolean, limited = true) {
+export function wallRange(ring: number, { innerDiameter, filled, limited, width }: Sizing) {
   const minWall = limited ? MIN_WALL : FREE_MIN_WALL
   const maxWall = limited ? MAX_WALL : FREE_MAX_WALL
   if (ring > 0) return { min: minWall, max: maxWall }
+  const half = width / 2
   const bore = innerDiameter / 2
-  let min = Math.max(minWall, Math.hypot(bore + (limited ? MIN_FACE : FREE_MIN_FACE), HALF) - bore)
-  if (filled) min = Math.max(min, Math.hypot(bore, HALF) + minWall - bore)
+  let min = Math.max(minWall, Math.hypot(bore + (limited ? MIN_FACE : FREE_MIN_FACE), half) - bore)
+  if (filled) min = Math.max(min, Math.hypot(bore, half) + minWall - bore)
   min = Math.ceil(min * 10) / 10
   return { min, max: Math.max(min, maxWall) }
 }
 
-export const clampWall = (wall: number, ring: number, innerDiameter: number, filled: boolean, limited = true) => {
-  const { min, max } = wallRange(ring, innerDiameter, filled, limited)
+export const clampWall = (wall: number, ring: number, sizing: Sizing) => {
+  const { min, max } = wallRange(ring, sizing)
   return Math.min(max, Math.max(min, Math.round(wall * 1000) / 1000))
 }
 
@@ -103,15 +144,16 @@ export const clampWall = (wall: number, ring: number, innerDiameter: number, fil
  * Clearance limits between rings. With a fill, the gap also comes off the core's
  * sphere, so it can't grow so wide that the core's faces shrink below 1 mm radius.
  */
-export function gapRange(innerDiameter: number, filled: boolean, limited = true) {
+export function gapRange({ innerDiameter, filled, limited, width }: Sizing) {
   const min = limited ? MIN_GAP : FREE_MIN_GAP
   let max = limited ? MAX_GAP : FREE_MAX_GAP
-  if (filled) max = Math.min(max, Math.floor((Math.hypot(innerDiameter / 2, HALF) - Math.hypot(1, HALF)) * 100) / 100)
+  const half = width / 2
+  if (filled) max = Math.min(max, Math.floor((Math.hypot(innerDiameter / 2, half) - Math.hypot(1, half)) * 100) / 100)
   return { min, max: Math.max(min, max) }
 }
 
-export const clampGap = (gap: number, innerDiameter: number, filled: boolean, limited = true) => {
-  const { min, max } = gapRange(innerDiameter, filled, limited)
+export const clampGap = (gap: number, sizing: Sizing) => {
+  const { min, max } = gapRange(sizing)
   return Math.min(max, Math.max(min, Math.round(gap * 1000) / 1000))
 }
 
@@ -120,41 +162,39 @@ export const clampGap = (gap: number, innerDiameter: number, filled: boolean, li
  * A fill has an inner radius of 0. `walls` holds each ring's thickness at the
  * mid-plane, innermost first; each ring starts one `gap` outside the last.
  */
-export function computeRingSpecs(
-  walls: number[],
-  innerDiameter: number,
-  filled = false,
-  limited = true,
-  gap = GAP,
-): RingSpec[] {
+export function computeRingSpecs(walls: number[], sizing: Sizing): RingSpec[] {
+  const { innerDiameter, filled, width } = sizing
   const bore = innerDiameter / 2
-  const socket = Math.hypot(bore, HALF) // sphere meeting the faces at the bore
-  const clearance = clampGap(gap, innerDiameter, filled, limited)
+  const socket = Math.hypot(bore, width / 2) // sphere meeting the faces at the bore
+  const clearance = clampGap(sizing.gap, sizing)
   const specs: RingSpec[] = []
   if (filled) {
-    specs.push({ inner: { kind: 'cylinder', radius: 0 }, outer: { kind: 'sphere', radius: socket - clearance } })
+    specs.push({ inner: { kind: 'cylinder', radius: 0 }, outer: { kind: 'sphere', radius: socket - clearance }, width })
   }
   let sphere = 0
   walls.forEach((w, i) => {
-    const wall = clampWall(w, i, innerDiameter, filled, limited)
+    const wall = clampWall(w, i, sizing)
     const start = i === 0 ? bore : sphere + clearance
     const inner: Surface =
       i > 0 ? { kind: 'sphere', radius: start } : filled ? { kind: 'sphere', radius: socket } : { kind: 'cylinder', radius: bore }
     sphere = start + wall
-    specs.push({ inner, outer: { kind: i === walls.length - 1 ? 'rounded' : 'sphere', radius: sphere } })
+    specs.push({ inner, outer: { kind: i === walls.length - 1 ? 'rounded' : 'sphere', radius: sphere }, width })
   })
   return specs
 }
 
 /** Radius at the mid-plane of the surface whose face-edge radius is `edge` — inverse of `edgeRadius`. */
-export function radiusFromEdge(kind: SurfaceKind, edge: number): number {
+export function radiusFromEdge(kind: SurfaceKind, edge: number, width: number): number {
+  const half = width / 2
   switch (kind) {
     case 'cylinder':
       return edge
     case 'sphere':
-      return Math.hypot(edge, HALF)
-    case 'rounded':
-      return edge + ROUND_RADIUS - Math.sqrt(ROUND_RADIUS * ROUND_RADIUS - HALF * HALF)
+      return Math.hypot(edge, half)
+    case 'rounded': {
+      const round = roundRadius(width)
+      return edge + round - Math.sqrt(round * round - half * half)
+    }
   }
 }
 
@@ -400,6 +440,8 @@ export function buildRingGeometry(
   texture: Texture = 'smooth',
   textureDepth: TextureDepth = 'light',
 ): THREE.BufferGeometry {
+  const width = spec.width
+  const half = width / 2
   const textured = texture !== 'smooth'
   const segs = textured ? 720 : 192
   const positions: number[] = []
@@ -441,32 +483,35 @@ export function buildRingGeometry(
   }
 
   const solid = spec.inner.radius === 0
-  const innerEdge = edgeRadius(spec.inner)
-  const outerEdge = edgeRadius(spec.outer)
+  const innerEdge = edgeRadius(spec.inner, width)
+  const outerEdge = edgeRadius(spec.outer, width)
   const midRadius = spec.outer.radius
   const depth = textureDepthMm(spec, textureDepth)
-  const fade = Math.max(0.6, depth) // taper the cut to nothing at the faces
+  // Taper the cut to nothing at the faces, over a band a narrow ring can still spare.
+  const fade = Math.min(Math.max(0.6, depth), half * 0.4)
+  // Keep the rows-per-mm the default width gives, so texture stays as crisp at any width.
+  const texturedRows = Math.min(241, Math.max(41, Math.round(width * 9) + 1))
 
   addStrip(
-    textured ? 91 : 41,
+    textured ? texturedRows : 41,
     (t) => {
-      const z = HALF - t * RING_WIDTH
-      return { r: surfaceRadius(spec.outer, z), z }
+      const z = half - t * width
+      return { r: surfaceRadius(spec.outer, z, width), z }
     },
     textured
-      ? (theta, z) => displacement(texture, theta, z, midRadius, depth) * smoothstep(HALF, HALF - fade, Math.abs(z))
+      ? (theta, z) => displacement(texture, theta, z, midRadius, depth) * smoothstep(half, half - fade, Math.abs(z))
       : undefined,
   )
   if (solid) {
-    addCap(-HALF, outerEdge, false)
-    addCap(HALF, outerEdge, true)
+    addCap(-half, outerEdge, false)
+    addCap(half, outerEdge, true)
   } else {
-    addStrip(2, (t) => ({ r: outerEdge + (innerEdge - outerEdge) * t, z: -HALF }))
+    addStrip(2, (t) => ({ r: outerEdge + (innerEdge - outerEdge) * t, z: -half }))
     addStrip(spec.inner.kind === 'cylinder' ? 2 : 41, (t) => {
-      const z = -HALF + t * RING_WIDTH
-      return { r: surfaceRadius(spec.inner, z), z }
+      const z = -half + t * width
+      return { r: surfaceRadius(spec.inner, z, width), z }
     })
-    addStrip(2, (t) => ({ r: innerEdge + (outerEdge - innerEdge) * t, z: HALF }))
+    addStrip(2, (t) => ({ r: innerEdge + (outerEdge - innerEdge) * t, z: half }))
   }
 
   const geometry = new THREE.BufferGeometry()

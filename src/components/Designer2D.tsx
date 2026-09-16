@@ -1,13 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, ChevronUp, Eye, Maximize, Minus, Plus, Printer as PrinterIcon, Ruler, ZoomIn, ZoomOut } from 'lucide-react'
-import { colorOf, gapOf, partName, ringOfPart, specsOf, type Design } from '../lib/design'
+import {
+  ChevronDown,
+  ChevronUp,
+  ChevronsDown,
+  ChevronsUp,
+  Eye,
+  Maximize,
+  Minus,
+  MoveVertical,
+  Plus,
+  Printer as PrinterIcon,
+  Ruler,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
+import { colorOf, gapOf, partName, ringOfPart, sizingOf, specsOf, type Design } from '../lib/design'
 import {
   GAP,
   MAX_DIAMETER,
   MIN_DIAMETER,
-  RING_WIDTH,
   clampDiameter as clampDiameterTo,
+  clampWidth,
   diameterRange,
   edgeRadius,
   formatUsSize,
@@ -17,11 +31,13 @@ import {
   surfaceRadius,
   usSizeToDiameter,
   wallRange,
+  widthRange,
   type RingSpec,
 } from '../lib/ring'
 import { loadPrinterId, PRINTERS, printerById, savePrinterId } from '../lib/printers'
 import { formatLength, fromUnit, snapMm, STEP, toUnit, type Unit } from '../lib/units'
 import { annulus } from './RingIcon'
+import type { View2D } from './Toolbar'
 
 interface Designer2DProps {
   design: Design
@@ -32,11 +48,16 @@ interface Designer2DProps {
   onDiameterChange: (diameter: number) => void
   /** New wall thickness for ring `ring` (innermost ring = 0). */
   onWallChange: (ring: number, wall: number) => void
+  /** New face-to-face width, shared by every ring. */
+  onWidthChange: (width: number) => void
+  /** Face on for the diameters, or edge on — the ring lying flat — for its height. */
+  view: View2D
+  onViewChange: (view: View2D) => void
   /** Turns the usual inner diameter and thickness limits on or off. */
   onLimitedChange: (limited: boolean) => void
   /** Turns fixed ring spacing on or off, or sets the custom spacing between every ring. */
   onSpacingChange: (patch: Pick<Partial<Design>, 'fixedGap' | 'gap'>) => void
-  /** Where the sizing panel is rendered — the spot below the Design box. */
+  /** Where the sizing panel is rendered — the spot below the Color and Texture boxes. */
   panelSlot: HTMLElement | null
 }
 
@@ -61,7 +82,7 @@ const formatBed = (x: number, y: number, unit: Unit) => {
   return `${n(x)} × ${n(y)} ${unit}`
 }
 
-type Handle = 'bore' | 'outer'
+type Handle = 'bore' | 'outer' | 'height'
 
 /** Front-on, to-scale view for sizing the selected layer. Drag its handles to resize. */
 export function Designer2D({
@@ -71,13 +92,28 @@ export function Designer2D({
   onSelectLayer,
   onDiameterChange,
   onWallChange,
+  onWidthChange,
+  view: viewMode,
+  onViewChange,
   onLimitedChange,
   onSpacingChange,
   panelSlot,
 }: Designer2DProps) {
+  const sizing = sizingOf(design)
   const gap = gapOf(design)
-  const gaps = gapRange(design.innerDiameter, design.filled, design.limited)
+  const gaps = gapRange(sizing)
+  const widths = widthRange(design.limited)
+  const setWidth = (v: number) => onWidthChange(clampWidth(snapMm(v, unit), design.limited))
+  const sideView = viewMode === 'side'
+  const half = design.width / 2
+  // Side-view labels need room: the height caption fits beside a band over 5.2 mm, the full bore
+  // dimension (size, arrow and US size) inside one over 6.4 mm; below that the bore size shrinks.
+  const tallBand = half > 2.6
+  const roomyBore = half > 3.2
+  const boreFont = Math.min(1.9, design.width * 0.4)
   const [spacingPreview, setSpacingPreview] = useState(false)
+  const [sizeOpen, setSizeOpen] = useState(true)
+  const [bedOpen, setBedOpen] = useState(true)
   // Fixed spacing has nothing to adjust, so its preview closes with it.
   const setFixedGap = (fixedGap: boolean) => {
     if (fixedGap) setSpacingPreview(false)
@@ -88,11 +124,13 @@ export function Designer2D({
   // Snap to the display unit's precision so typed and dragged values read back cleanly.
   const clampDiameter = (d: number) => clampDiameterTo(snapMm(d, unit), design.limited)
   const svgRef = useRef<SVGSVGElement>(null)
-  const [angles, setAngles] = useState<Record<Handle, number>>({ bore: -Math.PI / 4, outer: -Math.PI / 4 })
+  const [angles, setAngles] = useState({ bore: -Math.PI / 4, outer: -Math.PI / 4 })
   const [dragging, setDragging] = useState<Handle | null>(null)
   const specs = specsOf(design)
   const bore = design.innerDiameter / 2
   const outerR = outerDiameter(specs) / 2
+  // Where the outermost ring meets its flat faces — inside `outerR`, which is the crown at the mid-plane.
+  const faceR = edgeRadius(specs[specs.length - 1].outer, design.width)
   const fitView = Math.max(MIN_VIEW, Math.ceil(outerR + 6))
   // null follows the ring (the default fit); a number is a zoom the user chose.
   const [zoomView, setZoomView] = useState<number | null>(null)
@@ -129,10 +167,10 @@ export function Designer2D({
   const isInnerRing = ring === 0
   // A ring's wall is measured from where it starts: the bore, or one gap outside the ring within.
   const start = isInnerRing ? bore : spec.inner.radius
-  const range = wallRange(ring, design.innerDiameter, design.filled, design.limited)
+  const range = wallRange(ring, sizing)
   const wall = spec.outer.radius - start
   // The outer ring's rounded outside is drawn at its widest; other rings show their face edge.
-  const outerHandleR = outermost ? spec.outer.radius : edgeRadius(spec.outer)
+  const outerHandleR = outermost ? spec.outer.radius : edgeRadius(spec.outer, design.width)
 
   const setOuterDiameter = (d: number) => onWallChange(ring, snapMm(d, unit) / 2 - start)
 
@@ -144,10 +182,12 @@ export function Designer2D({
 
   const dragTo = (handle: Handle, e: React.PointerEvent) => {
     const { x, y } = toMm(e)
+    // Side on, the ring is mirrored about the axis, so either face sets the height.
+    if (handle === 'height') return setWidth(Math.abs(y) * 2)
     const r = Math.hypot(x, y)
     setAngles((a) => ({ ...a, [handle]: Math.atan2(y, x) }))
     if (handle === 'bore') onDiameterChange(clampDiameter(r * 2))
-    else setOuterDiameter((outermost ? r : radiusFromEdge(spec.outer.kind, r)) * 2)
+    else setOuterDiameter((outermost ? r : radiusFromEdge(spec.outer.kind, r, design.width)) * 2)
   }
 
   const startDrag = (handle: Handle) => (e: React.PointerEvent) => {
@@ -160,7 +200,8 @@ export function Designer2D({
   // Stop dragging if the selection changes mid-drag (e.g. a keyboard shortcut in the Layers box).
   useEffect(() => setDragging(null), [part])
 
-  const handles: { id: Handle; r: number }[] = ring < 0 ? [] : [{ id: 'outer', r: outerHandleR }]
+  // Front-on handles ride a circle, so they track an angle; the side view's height handle doesn't.
+  const handles: { id: 'bore' | 'outer'; r: number }[] = ring < 0 ? [] : [{ id: 'outer', r: outerHandleR }]
   if (isInnerRing) handles.unshift({ id: 'bore', r: bore })
 
   const labelAngle = angles.outer
@@ -199,25 +240,40 @@ export function Designer2D({
             <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#3a3a3a" />
             </marker>
+            <marker id="arrow-light" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#cfcfcf" />
+            </marker>
           </defs>
           <rect x={-view * 4} y={-view * 4} width={view * 8} height={view * 8} fill="url(#grid-major)" />
 
-          {/* print bed outline, centred on the ring */}
+          {/* print bed: its outline face on, its surface with the ring resting on it side on */}
           <g className="pointer-events-none">
-            <rect
-              x={-printer.bed.x / 2}
-              y={-printer.bed.y / 2}
-              width={printer.bed.x}
-              height={printer.bed.y}
-              rx={2}
-              fill="rgb(255 255 255 / 0.18)"
-              stroke={BED_COLOR}
-              strokeWidth={0.15 * px}
-              strokeDasharray={`${1.2 * px} ${0.8 * px}`}
-            />
+            {sideView ? (
+              <line
+                x1={-printer.bed.x / 2}
+                y1={half}
+                x2={printer.bed.x / 2}
+                y2={half}
+                stroke={BED_COLOR}
+                strokeWidth={0.15 * px}
+                strokeDasharray={`${1.2 * px} ${0.8 * px}`}
+              />
+            ) : (
+              <rect
+                x={-printer.bed.x / 2}
+                y={-printer.bed.y / 2}
+                width={printer.bed.x}
+                height={printer.bed.y}
+                rx={2}
+                fill="rgb(255 255 255 / 0.18)"
+                stroke={BED_COLOR}
+                strokeWidth={0.15 * px}
+                strokeDasharray={`${1.2 * px} ${0.8 * px}`}
+              />
+            )}
             <text
               x={-printer.bed.x / 2 + 1.2 * px}
-              y={-printer.bed.y / 2 + 2.2 * px}
+              y={sideView ? half + 2.6 * px : -printer.bed.y / 2 + 2.2 * px}
               fontSize={1.3 * px}
               fill={BED_COLOR}
             >
@@ -225,6 +281,8 @@ export function Designer2D({
             </text>
           </g>
 
+          {!sideView && (
+          <>
           {/* the gaps between rings read as a dark shadow behind the faces */}
           <path d={annulus(outerR, design.filled ? 0 : bore)} fill="#5c5c5c" fillRule="evenodd" />
           {specs.map((s, i) => {
@@ -234,16 +292,16 @@ export function Designer2D({
               <g key={i} className="cursor-pointer" onPointerDown={() => onSelectLayer(i)}>
                 {last && (
                   <path
-                    d={annulus(outerR, edgeRadius(s.outer))}
+                    d={annulus(outerR, edgeRadius(s.outer, s.width))}
                     fill={color}
                     fillRule="evenodd"
                     stroke="rgb(0 0 0 / 0.35)"
                     strokeWidth="0.08"
                   />
                 )}
-                {last && <path d={annulus(outerR, edgeRadius(s.outer))} fill="rgb(0 0 0 / 0.14)" fillRule="evenodd" />}
+                {last && <path d={annulus(outerR, edgeRadius(s.outer, s.width))} fill="rgb(0 0 0 / 0.14)" fillRule="evenodd" />}
                 <path
-                  d={annulus(edgeRadius(s.outer), edgeRadius(s.inner))}
+                  d={annulus(edgeRadius(s.outer, s.width), edgeRadius(s.inner, s.width))}
                   fill={color}
                   fillRule="evenodd"
                   stroke="rgb(0 0 0 / 0.35)"
@@ -255,7 +313,7 @@ export function Designer2D({
 
           {/* selected layer outline */}
           <path
-            d={annulus(outermost ? outerR : edgeRadius(spec.outer), edgeRadius(spec.inner))}
+            d={annulus(outermost ? outerR : edgeRadius(spec.outer, spec.width), edgeRadius(spec.inner, spec.width))}
             fill="none"
             stroke={HANDLE_COLOR}
             strokeWidth="0.22"
@@ -299,7 +357,7 @@ export function Designer2D({
             />
           </g>
           <text x={0} y={outerR + 2.1} textAnchor="middle" fontSize="1.2" fill="#444" className="pointer-events-none">
-            outer Ø {formatLength(outerR * 2, unit)} · {formatShort(RING_WIDTH, unit)} wide
+            outer Ø {formatLength(outerR * 2, unit)} · {formatShort(design.width, unit)} high
           </text>
 
           {/* drag targets + handles for the selected layer */}
@@ -341,21 +399,202 @@ export function Designer2D({
               </text>
             </g>
           )}
+          </>
+          )}
+
+          {sideView && (
+          <>
+          {/* The ring lying flat on the bed, cut through its axis and mirrored about it. The gaps
+              read as a dark shadow out to the face edges, so the crown keeps a clean silhouette;
+              the bore is darker still — you're looking down it — which keeps the whole ring one
+              solid shape however short it gets. */}
+          <rect x={-faceR} y={-half} width={faceR * 2} height={design.width} fill="#5c5c5c" />
+          {!design.filled && <rect x={-bore} y={-half} width={bore * 2} height={design.width} fill="#3f3f3f" />}
+          {specs.map((s, i) => (
+            <g
+              key={i}
+              className="cursor-pointer"
+              fill={colorOf(design, i)}
+              stroke="rgb(0 0 0 / 0.35)"
+              strokeWidth={0.06}
+              onPointerDown={() => onSelectLayer(i)}
+            >
+              <path d={sectionPath(s)} />
+              <path d={sectionPath(s)} transform="scale(-1 1)" />
+            </g>
+          ))}
+
+          {/* selected part, outlined on both halves */}
+          <g
+            fill="none"
+            stroke={HANDLE_COLOR}
+            strokeWidth="0.22"
+            strokeDasharray="0.8 0.5"
+            className="pointer-events-none"
+          >
+            <path d={sectionPath(spec)} />
+            <path d={sectionPath(spec)} transform="scale(-1 1)" />
+          </g>
+
+          {/* height dimension, out to the left of the ring */}
+          <g className="pointer-events-none">
+            <g stroke="#6a6a6a" strokeWidth="0.08" strokeDasharray="0.4 0.3">
+              <line x1={-outerR - 5} y1={-half} x2={-faceR - 0.3} y2={-half} />
+              <line x1={-outerR - 5} y1={half} x2={-faceR - 0.3} y2={half} />
+            </g>
+            <line
+              x1={-outerR - 4.2}
+              y1={-half + 0.2}
+              x2={-outerR - 4.2}
+              y2={half - 0.2}
+              stroke="#3a3a3a"
+              strokeWidth="0.12"
+              markerStart="url(#arrow)"
+              markerEnd="url(#arrow)"
+            />
+            {/* centred on the band; a short ring drops the caption so nothing crosses the bed line */}
+            <text
+              x={-outerR - 5.4}
+              y={tallBand ? -0.25 : 0.65}
+              textAnchor="end"
+              fontSize="1.9"
+              fontWeight="600"
+              fill="#2b2b2b"
+            >
+              {formatLength(design.width, unit)}
+            </text>
+            {tallBand && (
+              <text x={-outerR - 5.4} y={1.75} textAnchor="end" fontSize="1.2" fill="#555">
+                height
+              </text>
+            )}
+          </g>
+
+          {/* Inner diameter, read down the bore. A roomy bore gets the full dimension like the
+              front view; a short one just the size, shrunk to fit the band. */}
+          {!design.filled && (
+            <g className="pointer-events-none">
+              {roomyBore ? (
+                <>
+                  <line
+                    x1={-bore + 0.3}
+                    y1={0}
+                    x2={bore - 0.3}
+                    y2={0}
+                    stroke="#cfcfcf"
+                    strokeWidth="0.12"
+                    markerStart="url(#arrow-light)"
+                    markerEnd="url(#arrow-light)"
+                  />
+                  <text x={0} y={-0.9} textAnchor="middle" fontSize="1.9" fontWeight="600" fill="#f0f0f0">
+                    Ø {formatLength(design.innerDiameter, unit)}
+                  </text>
+                  <text x={0} y={2.3} textAnchor="middle" fontSize="1.3" fill="#c8c8c8">
+                    US size {formatUsSize(design.innerDiameter)}
+                  </text>
+                </>
+              ) : (
+                boreFont >= 0.8 && (
+                  <text
+                    x={0}
+                    y={boreFont * 0.35}
+                    textAnchor="middle"
+                    fontSize={boreFont}
+                    fontWeight="600"
+                    fill="#f0f0f0"
+                  >
+                    Ø {formatLength(design.innerDiameter, unit)}
+                  </text>
+                )
+              )}
+            </g>
+          )}
+
+          {/* axis of rotation, in the usual dash-dot of a section drawing — kept clear of the bore */}
+          <g
+            stroke="#6a6a6a"
+            strokeWidth="0.09"
+            strokeDasharray="1.4 0.4 0.25 0.4"
+            className="pointer-events-none"
+          >
+            <line x1={0} y1={-half - 3} x2={0} y2={-half - 0.4} />
+            <line x1={0} y1={half + 0.4} x2={0} y2={half + 3} />
+          </g>
+
+          {/* outer diameter, below the ring */}
+          <g stroke="#6a6a6a" strokeWidth="0.08" className="pointer-events-none">
+            <line x1={-outerR} y1={half} x2={-outerR} y2={half + 5.5} strokeDasharray="0.4 0.3" />
+            <line x1={outerR} y1={half} x2={outerR} y2={half + 5.5} strokeDasharray="0.4 0.3" />
+            <line
+              x1={-outerR + 0.2}
+              y1={half + 4.6}
+              x2={outerR - 0.2}
+              y2={half + 4.6}
+              stroke="#3a3a3a"
+              strokeWidth="0.1"
+              markerStart="url(#arrow)"
+              markerEnd="url(#arrow)"
+            />
+          </g>
+          <text x={0} y={half + 4.1} textAnchor="middle" fontSize="1.2" fill="#444" className="pointer-events-none">
+            outer Ø {formatLength(outerR * 2, unit)}
+          </text>
+
+          {/* a grab bar along each face — dragging either sets the height */}
+          {([-1, 1] as const).map((face) => {
+            const active = dragging === 'height'
+            const hs = Math.max(px, 0.5)
+            const hx = (bore + outerR) / 2
+            return (
+              <g key={face} className="cursor-ns-resize" onPointerDown={startDrag('height')}>
+                <rect x={-outerR} y={face * half - 1.1 * hs} width={outerR * 2} height={2.2 * hs} fill="transparent" />
+                {active && (
+                  <line
+                    x1={-outerR}
+                    y1={face * half}
+                    x2={outerR}
+                    y2={face * half}
+                    stroke={HANDLE_COLOR}
+                    strokeWidth={0.18 * hs}
+                  />
+                )}
+                {[-hx, hx].map((cx) => (
+                  <circle
+                    key={cx}
+                    cx={cx}
+                    cy={face * half}
+                    r={(active ? 1.1 : 0.9) * hs}
+                    fill="#fff"
+                    stroke={HANDLE_COLOR}
+                    strokeWidth={0.35 * hs}
+                  />
+                ))}
+              </g>
+            )
+          })}
+          </>
+          )}
         </svg>
         <p className="pointer-events-none absolute top-24 left-1/2 -translate-x-1/2 rounded-full bg-black/40 px-3 py-1 text-xs whitespace-nowrap text-white sm:top-5">
-          {ring < 0
-            ? 'Select a ring to size it'
-            : isInnerRing
-              ? 'Drag the blue handles to set the inner diameter and thickness'
-              : `Drag the blue handle to set the ${partName(design, part).toLowerCase()}'s thickness`}
+          {sideView
+            ? 'The ring lying flat — drag either face to set its height'
+            : ring < 0
+              ? 'Select a ring to size it'
+              : isInnerRing
+                ? 'Drag the blue handles to set the inner diameter and thickness'
+                : `Drag the blue handle to set the ${partName(design, part).toLowerCase()}'s thickness`}
         </p>
       </div>
 
       {panelSlot &&
         createPortal(
       <>
-      <aside className="pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-md bg-panel text-white shadow-lg backdrop-blur-sm">
-        <h2 className="flex shrink-0 items-center gap-3 px-4 py-3 text-sm">
+      <aside
+        className={`pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-md bg-panel text-white shadow-lg backdrop-blur-sm ${
+          sizeOpen ? '' : 'shrink-0'
+        }`}
+      >
+        <h2 className="flex shrink-0 items-center gap-3 py-2 pr-2 pl-4 text-sm">
           <Ruler size={16} />
           Size
           <Switch
@@ -369,8 +608,42 @@ export function Designer2D({
             }
             className="ml-1"
           />
+          <CollapseButton open={sizeOpen} onToggle={() => setSizeOpen(!sizeOpen)} />
         </h2>
+        {sizeOpen && (
         <div className="min-h-0 space-y-4 overflow-y-auto border-t border-white/15 p-4">
+        <div className="border-b border-white/15 pb-4">
+          <SectionTitle>Ring height</SectionTitle>
+          <NumberField
+            value={+design.width.toFixed(2)}
+            min={widths.min}
+            max={widths.max}
+            unit={unit}
+            onChange={setWidth}
+          />
+          <input
+            type="range"
+            min={widths.min}
+            max={widths.max}
+            step={0.1}
+            value={design.width}
+            onChange={(e) => setWidth(parseFloat(e.target.value))}
+            className="mt-3 w-full"
+          />
+          <p className="mt-1.5 text-[11px] text-white/60">
+            How tall the ring stands lying flat — the band's width, the same on every ring.
+          </p>
+          {!sideView && (
+            <button
+              onClick={() => onViewChange('side')}
+              className="mt-3 flex h-8 w-full items-center justify-center gap-1.5 rounded bg-black/20 text-xs transition hover:bg-white/15"
+            >
+              <MoveVertical size={14} />
+              Show the side view
+            </button>
+          )}
+        </div>
+
         <div className="border-b border-white/15 pb-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <SectionTitle className="mb-0">Ring spacing</SectionTitle>
@@ -511,12 +784,15 @@ export function Designer2D({
           </>
         )}
         </div>
+        )}
       </aside>
       <aside className="pointer-events-auto flex shrink-0 flex-col overflow-hidden rounded-md bg-panel text-white shadow-lg backdrop-blur-sm">
-        <h2 className="flex shrink-0 items-center gap-3 px-4 py-3 text-sm">
+        <h2 className="flex shrink-0 items-center gap-3 py-2 pr-2 pl-4 text-sm">
           <PrinterIcon size={16} />
           Print bed
+          <CollapseButton open={bedOpen} onToggle={() => setBedOpen(!bedOpen)} />
         </h2>
+        {bedOpen && (
         <div className="space-y-3 border-t border-white/15 p-4">
           <label className="flex items-center justify-between gap-2 text-xs text-white/80">
             Printer
@@ -558,11 +834,26 @@ export function Designer2D({
             </button>
           </div>
         </div>
+        )}
       </aside>
       </>,
           panelSlot,
         )}
     </div>
+  )
+}
+
+/** Chevron at the right of a box's header that shows or hides its body. */
+function CollapseButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      title={open ? 'Collapse' : 'Expand'}
+      aria-expanded={open}
+      onClick={onToggle}
+      className="ml-auto grid size-7 place-items-center rounded hover:bg-white/10"
+    >
+      {open ? <ChevronsUp size={16} /> : <ChevronsDown size={16} />}
+    </button>
   )
 }
 
@@ -603,18 +894,54 @@ export function Switch({
 
 /** Outline of a part's cross-section through its axis, in (r, z) mm, drawn with z up. */
 function sectionPath(spec: RingSpec) {
-  const half = RING_WIDTH / 2
+  const { width } = spec
+  const half = width / 2
   const n = 24
   const pts: string[] = []
   for (let i = 0; i <= n; i++) {
-    const z = half - (i / n) * RING_WIDTH
-    pts.push(`${surfaceRadius(spec.outer, z)},${-z}`)
+    const z = half - (i / n) * width
+    pts.push(`${surfaceRadius(spec.outer, z, width)},${-z}`)
   }
   for (let i = 0; i <= n; i++) {
-    const z = -half + (i / n) * RING_WIDTH
-    pts.push(`${surfaceRadius(spec.inner, z)},${-z}`)
+    const z = -half + (i / n) * width
+    pts.push(`${surfaceRadius(spec.inner, z, width)},${-z}`)
   }
   return `M ${pts.join(' L ')} Z`
+}
+
+/** Every part cut through the axis, filled with its colour. */
+const sectionParts = (design: Design, specs: RingSpec[]) =>
+  specs.map((spec, i) => <path key={i} d={sectionPath(spec)} fill={colorOf(design, i)} />)
+
+/**
+ * Cut-away of the whole design to scale — the rings seen edge on, so the width reads against the
+ * diameter. `children` are drawn over it in the same millimetre coordinates.
+ */
+function CrossSection({
+  design,
+  specs,
+  className,
+  children,
+}: {
+  design: Design
+  specs: RingSpec[]
+  className?: string
+  children?: React.ReactNode
+}) {
+  const half = design.width / 2
+  const left = (design.filled ? 0 : design.innerDiameter / 2) - 0.6
+  const right = specs[specs.length - 1].outer.radius + 0.6
+  return (
+    <svg
+      viewBox={`${left} ${-half - 0.6} ${right - left} ${design.width + 1.2}`}
+      className={`${className} rounded-sm bg-[#5c5c5c]`}
+    >
+      <g stroke="rgb(0 0 0 / 0.35)" strokeWidth={0.05}>
+        {sectionParts(design, specs)}
+      </g>
+      {children}
+    </svg>
+  )
 }
 
 /**
@@ -622,31 +949,18 @@ function sectionPath(spec: RingSpec) {
  * so the spacing can be judged before committing to it.
  */
 function SpacingPreview({ design, specs, gap, unit }: { design: Design; specs: RingSpec[]; gap: number; unit: Unit }) {
-  const half = RING_WIDTH / 2
-  const left = (design.filled ? 0 : design.innerDiameter / 2) - 0.6
-  const right = specs[specs.length - 1].outer.radius + 0.6
-  const top = -half - 0.6
-  const height = RING_WIDTH + 1.2
-
   // Close-up window centred on the first gap, wide enough to show a ring either side.
   const gapStart = specs[0].outer.radius
   const zoomW = Math.max(1.6, gap * 5)
-  const zoomH = zoomW * 0.45
+  const zoomH = Math.min(zoomW * 0.45, design.width)
   const zoomX = gapStart + gap / 2 - zoomW / 2
   const zoomY = -zoomH / 2
   const px = zoomW / 100 // one hundredth of the close-up's width, for strokes and text
 
-  const parts = specs.map((spec, i) => (
-    <path key={i} d={sectionPath(spec)} fill={colorOf(design, i)} />
-  ))
-
   return (
     <div className="mt-3 space-y-2 rounded bg-black/20 p-2">
       <div className="text-[10px] tracking-wider text-white/60 uppercase">Cross-section</div>
-      <svg viewBox={`${left} ${top} ${right - left} ${height}`} className="max-h-40 w-full rounded-sm bg-[#5c5c5c]">
-        <g stroke="rgb(0 0 0 / 0.35)" strokeWidth={0.05}>
-          {parts}
-        </g>
+      <CrossSection design={design} specs={specs} className="max-h-40 w-full">
         <rect
           x={zoomX}
           y={zoomY}
@@ -657,7 +971,7 @@ function SpacingPreview({ design, specs, gap, unit }: { design: Design; specs: R
           strokeWidth={0.08}
           strokeDasharray="0.25 0.15"
         />
-      </svg>
+      </CrossSection>
       <div className="text-[10px] tracking-wider text-white/60 uppercase">Close-up</div>
       <svg viewBox={`${zoomX} ${zoomY} ${zoomW} ${zoomH}`} className="w-full rounded-sm bg-[#5c5c5c]">
         <defs>
@@ -666,7 +980,7 @@ function SpacingPreview({ design, specs, gap, unit }: { design: Design; specs: R
           </marker>
         </defs>
         <g stroke="rgb(0 0 0 / 0.35)" strokeWidth={px * 0.4}>
-          {parts}
+          {sectionParts(design, specs)}
         </g>
         <line
           x1={gapStart}

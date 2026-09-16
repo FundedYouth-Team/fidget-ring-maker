@@ -15,7 +15,10 @@ export function RingIcon({ design, className }: { design: Design; className?: st
             fill={colorOf(design, i)}
             stroke="rgb(0 0 0 / 0.35)"
             strokeWidth={0.03}
-            d={annulus((i === specs.length - 1 ? spec.outer.radius : edgeRadius(spec.outer)) * scale, edgeRadius(spec.inner) * scale)}
+            d={annulus(
+              (i === specs.length - 1 ? spec.outer.radius : edgeRadius(spec.outer, spec.width)) * scale,
+              edgeRadius(spec.inner, spec.width) * scale,
+            )}
           />
         ))
         .reverse()}

@@ -2,12 +2,19 @@ import {
   clampDiameter,
   clampGap,
   clampWall,
+  clampWidth,
   computeRingSpecs,
   GAP,
   INNER_RING_WALL,
+  LEGACY_GAP,
+  LEGACY_INNER_RING_WALL,
+  LEGACY_RING_WALL,
+  LEGACY_RING_WIDTH,
   RING_WALL,
+  RING_WIDTH,
   TEXTURE_DEPTHS,
   TEXTURES,
+  type Sizing,
   type Texture,
   type TextureDepth,
 } from './ring'
@@ -61,6 +68,8 @@ export interface Design {
   fixedGap: boolean
   /** Custom clearance between every pair of rings, in mm — kept while spacing is fixed so it comes back. */
   gap: number
+  /** How wide every ring is from one flat face to the other, in mm. */
+  width: number
 }
 
 export const MIN_RINGS = 2
@@ -73,7 +82,7 @@ export const defaultFinish = (base: string): ColorFinish => {
 }
 
 export const DEFAULT_DESIGN: Design = {
-  innerDiameter: 18,
+  innerDiameter: 16.5,
   colors: ['#FF8036', '#2350D9'],
   advancedColor: false,
   finishes: [defaultFinish('#FF8036'), defaultFinish('#2350D9')],
@@ -84,6 +93,7 @@ export const DEFAULT_DESIGN: Design = {
   limited: true,
   fixedGap: true,
   gap: GAP,
+  width: RING_WIDTH,
 }
 
 export const ringCountOf = (design: Design) => design.colors.length - (design.filled ? 1 : 0)
@@ -91,23 +101,35 @@ export const ringCountOf = (design: Design) => design.colors.length - (design.fi
 /** Clearance between rings in use: the default while fixed, otherwise the custom spacing. */
 export const gapOf = (design: Design) => (design.fixedGap ? GAP : design.gap)
 
-export const specsOf = (design: Design) =>
-  computeRingSpecs(design.walls, design.innerDiameter, design.filled, design.limited, gapOf(design))
+/** The measurements the ring geometry is built from. */
+export const sizingOf = (design: Design): Sizing => ({
+  innerDiameter: design.innerDiameter,
+  filled: design.filled,
+  limited: design.limited,
+  gap: gapOf(design),
+  width: design.width,
+})
+
+export const specsOf = (design: Design) => computeRingSpecs(design.walls, sizingOf(design))
 
 /** Ring index (innermost = 0) of part `index`, or -1 for the inner fill. */
 export const ringOfPart = (design: Design, index: number) => index - (design.filled ? 1 : 0)
 
 /**
- * Re-clamps the inner diameter and every wall, e.g. after the bore, fill or ring order changes what
- * the inner ring allows, or the size limit is turned back on.
+ * Re-clamps the inner diameter, width and every wall, e.g. after the bore, width, fill or ring
+ * order changes what the inner ring allows, or the size limit is turned back on.
  */
 export const withValidWalls = (design: Design): Design => {
-  const innerDiameter = clampDiameter(design.innerDiameter, design.limited)
-  return {
+  const sized = {
     ...design,
-    innerDiameter,
-    walls: design.walls.map((w, i) => clampWall(w, i, innerDiameter, design.filled, design.limited)),
-    gap: clampGap(design.gap, innerDiameter, design.filled, design.limited),
+    innerDiameter: clampDiameter(design.innerDiameter, design.limited),
+    width: clampWidth(design.width, design.limited),
+  }
+  const sizing = sizingOf(sized)
+  return {
+    ...sized,
+    walls: sized.walls.map((w, i) => clampWall(w, i, sizing)),
+    gap: clampGap(sized.gap, sizing),
   }
 }
 
@@ -248,9 +270,16 @@ function parseDesign(parsed: unknown): Design | null {
       walls: stored.walls ?? [],
       // Designs from before the size limit toggle were always limited.
       limited: stored.limited !== false,
-      // Designs from before adjustable spacing always used the default clearance.
-      fixedGap: stored.fixedGap !== false,
-      gap: typeof stored.gap === 'number' && Number.isFinite(stored.gap) ? stored.gap : GAP,
+      // Designs from before adjustable spacing always used the original 0.2 mm clearance.
+      fixedGap: stored.fixedGap === undefined ? false : stored.fixedGap !== false,
+      gap:
+        typeof stored.gap === 'number' && Number.isFinite(stored.gap)
+          ? stored.gap
+          : stored.fixedGap === undefined
+            ? LEGACY_GAP
+            : GAP,
+      // Designs from before adjustable width were all the original 10 mm width.
+      width: typeof stored.width === 'number' && Number.isFinite(stored.width) ? stored.width : LEGACY_RING_WIDTH,
     }
     const { ringCount } = stored
     if (!Array.isArray(design.colors) || !design.colors.every((c) => /^#[0-9a-f]{6}$/i.test(c))) return null
@@ -263,10 +292,10 @@ function parseDesign(parsed: unknown): Design | null {
     design.finishes = design.colors.map((color, i) => parseFinish(finishes[i], color))
     if (!TEXTURES.some((t) => t.id === design.texture)) design.texture = DEFAULT_DESIGN.texture
     design.filled = design.filled === true
-    // Designs from before adjustable thickness used the default walls.
+    // Designs from before adjustable thickness used the original walls.
     const walls = Array.isArray(design.walls) ? design.walls : []
     design.walls = Array.from({ length: ringCountOf(design) }, (_, i) =>
-      typeof walls[i] === 'number' && Number.isFinite(walls[i]) ? walls[i] : i === 0 ? INNER_RING_WALL : RING_WALL,
+      typeof walls[i] === 'number' && Number.isFinite(walls[i]) ? walls[i] : i === 0 ? LEGACY_INNER_RING_WALL : LEGACY_RING_WALL,
     )
     return withValidWalls(design)
   } catch {
